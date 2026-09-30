@@ -50,6 +50,7 @@ uv run sai report                # 把库里的卡片渲染成 Markdown 情报�
 uv run sai generate --skill ppt-outline   # 为最新比赛生成 PPT 大纲（ReAct 循环）
 uv run sai generate --skill proposal      # 生成参赛计划书
 uv run sai study-path --competition CSP   # 生成备考路径（联网搜索 + 引用校验）
+uv run sai cost --today          # 查 LLM 花费账单（按任务/模型/日期）
 uv run sai serve                 # 启动 API 服务，访问 /health
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
@@ -63,6 +64,7 @@ uv run pytest                    # 跑测试（联网验收另跑 uv run pytest 
 | POST | `/scan` | 扫描官网通知（body: `{"limit": 10}`） |
 | GET | `/competitions` | 查询已识别的比赛卡片 |
 | GET | `/report` | Markdown 情报报告 |
+| GET | `/cost` | LLM 成本账单（可选 `?task=identify&date=2026-09-30`） |
 | POST | `/generate` | 生成参赛材料（body: `{"skill": "ppt-outline"}`，需密钥，耗时 30-90s） |
 | POST | `/study-path` | 生成备考路径（body: `{"competition": "CCF"}`，需密钥，耗时 40-90s） |
 
@@ -77,7 +79,8 @@ uv run pytest                    # 跑测试（联网验收另跑 uv run pytest 
 | --- | --- |
 | `sai scan [--limit N] [--detail 序号]` | 扫描通知列表，可选打印某条详情正文 |
 | `sai identify [--limit N]` | 关键词粗筛 + LLM 识别，输出比赛卡片与拒绝理由 |
-| `sai model` / `sai model use <档案>` | 查看 / 切换模型档案（写回 config.yaml） |
+| `sai cost [--task 名] [--today / --date 日期]` | 查成本台账：每次 LLM 调用的 token 与费用，按任务/模型汇总 |
+| `sai model` / `sai model use <档案>` | 查看 / 切换模型档案（写回 config.yaml），含按任务路由表与单价 |
 | `sai serve [--port 8000]` | 启动 FastAPI 服务 |
 
 </details>
