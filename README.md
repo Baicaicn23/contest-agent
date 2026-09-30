@@ -41,7 +41,7 @@ uv run pytest               # 133 项测试，离线不花钱
 
 - 🕷️ **盯官网**：爬学院通知公告，限速礼貌、选择器全配置化
 - 🧠 **识比赛**：关键词粗筛 + LLM 单次结构化调用，卡片附**逐字原文证据**防幻觉
-- 📝 **出材料**：为比赛生成 PPT 大纲、参赛计划书、带真实引用的备考路径（AgentScope 循环）
+- 📝 **出材料**：生成 PPT 大纲并直接导出 **.pptx 文件**、参赛计划书、带真实引用的备考路径
 - 💰 **管成本**：每次 LLM 调用记 token 与费用，预算超限自动熔断，按任务路由便宜/昂贵模型
 - ♻️ **有记性**：判过的通知直接命中记忆——二次扫描 0 次调用；31 条真实考卷防识别质量退化
 - ⏰ **会值班**：`sai watch` + cron 定时盯官网，新比赛推 webhook / 邮件 / 文件
@@ -53,7 +53,7 @@ uv run pytest               # 133 项测试，离线不花钱
 | 命令 | 作用 |
 | --- | --- |
 | `sai identify [--limit N]` | 粗筛 + LLM 识别，输出比赛卡片与拒绝理由 |
-| `sai generate --skill ppt-outline` | 生成参赛材料（ReAct 循环） |
+| `sai generate --skill ppt-outline` | 生成大纲并导出 .pptx（ReAct 循环） |
 | `sai study-path --competition CSP` | 备考路径（联网搜索 + 引用校验） |
 | `sai watch` | 盯一次官网，新比赛推送（cron 接管定时） |
 | `sai cost [--task 名] [--today]` | 成本台账：按任务/模型/日期汇总 |

@@ -4,6 +4,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M4 收尾批
+
+### 新增
+
+- **生成材料导出真 .pptx**：`sai generate --skill ppt-outline`（及前端 /生成、
+  POST /generate）在大纲落盘后自动经"LLM 结构化整理 → python-pptx 渲染"
+  产出 16:9 幻灯片文件；铁律只排版不改写（标题要点全来自大纲原文）；
+  导出失败降级不毁任务（大纲 .md 照常在手）。新依赖 `python-pptx==1.0.2`
+
 ## [0.2.0] - 2026-10-01
 
 v2 四个里程碑合并发版：成本台账与上下文管理、记忆与会话存档与评测、推送与子代理与权限门、Web 界面。
