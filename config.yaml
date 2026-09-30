@@ -3,6 +3,12 @@
 
 active_model: deepseek
 
+# 联网搜索（P5 学习路径用）：国内可直连、无需密钥；主引擎被风控时自动切回退引擎
+search:
+  engine_url: https://cn.bing.com/search?q={query}&count=12   # 主引擎：Bing 中国版
+  fallback_engine_url: https://www.so.com/s?q={query}         # 回退引擎：360 搜索
+  max_results: 6                                              # 每次搜索最多返回几条
+
 models:
   deepseek:
     base_url: https://api.deepseek.com
