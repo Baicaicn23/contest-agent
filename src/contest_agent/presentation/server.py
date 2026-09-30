@@ -8,6 +8,7 @@
     POST /scan          扫描官网通知（写台账）
     GET  /competitions  查询已识别的比赛卡片
     GET  /report        获取 Markdown 情报报告
+    GET  /cost          查询 LLM 成本台账（M1）
     POST /generate      生成参赛材料（AgentScope 循环，耗时 30-90 秒）
     POST /study-path    生成备考路径（联网搜索 + 引用校验，耗时 40-90 秒）
 
@@ -18,11 +19,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
+from ..application.usecases.cost_report import TASK_TYPES, CostReport
 from ..application.usecases.generate_material import GenerateMaterial
 from ..application.usecases.generate_report import GenerateReport
 from ..application.usecases.identify_competitions import IdentifyCompetitions
@@ -42,6 +45,7 @@ class Usecases:
     scan: ScanSite | None = None
     identify: IdentifyCompetitions | None = None
     report: GenerateReport | None = None
+    cost_report: CostReport | None = None
     generate_material: GenerateMaterial | None = None
     study_path: PlanStudyPath | None = None
 
@@ -82,6 +86,26 @@ def _card_to_dict(card) -> dict:
         "notice_url": card.notice_url,
         "evidence": card.evidence,
     }
+
+
+def _task_cost_to_dict(bucket) -> dict:
+    """TaskCost 小计 -> 响应字典（cost_yuan 允许为 None：没配单价算不出钱）。"""
+    return {
+        "calls": bucket.calls,
+        "prompt_tokens": bucket.prompt_tokens,
+        "completion_tokens": bucket.completion_tokens,
+        "cost_yuan": bucket.cost_yuan,
+    }
+
+
+def parse_date_safely(text: str | None):
+    """把 YYYY-MM-DD 字符串转成 date；格式不对返回 None（交给调用方报 422）。"""
+    if text is None:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 class MarkdownResponse(PlainTextResponse):
@@ -138,6 +162,28 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
         if usecases is None or usecases.report is None:
             raise HTTPException(503, "报告功能未装配")
         return usecases.report.execute()
+
+    @app.get("/cost")
+    def cost(task: str | None = None, date: str | None = None) -> dict:
+        """查询 LLM 成本台账（M1）。
+
+        可选参数：task=identify|generate|study_path 按任务过滤；
+        date=YYYY-MM-DD 只看某天。都不传 = 全部账单。
+        """
+        if usecases is None or usecases.cost_report is None:
+            raise HTTPException(503, "成本查询未装配")
+        on_date = parse_date_safely(date)
+        if date is not None and on_date is None:
+            raise HTTPException(422, f"日期格式不对：{date!r}，应为 YYYY-MM-DD")
+        if task is not None and task not in TASK_TYPES:
+            raise HTTPException(422, f"任务名 {task!r} 不认识，可选：{'/'.join(TASK_TYPES)}")
+
+        summary = usecases.cost_report.execute(task_type=task, on_date=on_date)
+        return {
+            "total": _task_cost_to_dict(summary.total),
+            "by_task": {name: _task_cost_to_dict(c) for name, c in summary.by_task.items()},
+            "by_model": {name: _task_cost_to_dict(c) for name, c in summary.by_model.items()},
+        }
 
     @app.post("/generate")
     def generate(req: GenerateRequest) -> dict:

@@ -51,3 +51,28 @@ class CompetitionModel(Base):
     evidence: Mapped[str] = mapped_column(Text, default="")
     notice_url: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class UsageRecordModel(Base):
+    """usage_records 表：LLM 调用流水账（M1 成本台账）。
+
+    定位和 notices 表（扫描台账）一样是"只增不改"的流水：
+    每次调用 LLM 记一行，账本永不涂改，错了就错着（对账靠人）。
+    成本台账是 v2 其他一切优化的度量衡——压缩省没省钱、路由选没选对，
+    都拿这张表说话。
+    """
+
+    __tablename__ = "usage_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_type: Mapped[str] = mapped_column(String(32), index=True)
+    # index=True：最常用的查询是"按任务聚合"（如 identify 花了多少），建索引免全表扫
+    profile_name: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(128))
+    prompt_tokens: Mapped[int] = mapped_column(default=0)
+    completion_tokens: Mapped[int] = mapped_column(default=0)
+    # nullable=True：档案没配单价时记 None——记不了钱，但 token 量照记
+    cost_yuan: Mapped[float | None] = mapped_column(nullable=True)
+    note: Mapped[str] = mapped_column(String(512), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    # 按天查账也是高频操作（"今天花了多少"），同样建索引

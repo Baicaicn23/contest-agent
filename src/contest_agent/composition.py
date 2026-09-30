@@ -20,6 +20,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from .application.cost import CostMeter
+from .application.usecases.cost_report import CostReport
 from .application.usecases.generate_material import GenerateMaterial
 from .application.usecases.generate_report import GenerateReport
 from .application.usecases.identify_competitions import IdentifyCompetitions
@@ -30,6 +32,7 @@ from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .infrastructure.persistence.repository import (
     SqliteCompetitionRepository,
     SqliteNoticeRepository,
+    SqliteUsageRepository,
 )
 from .infrastructure.search.web_search import BingSearch
 from .presentation.server import Usecases, create_app
@@ -39,6 +42,8 @@ __all__ = [
     "app",
     "build_app",
     "build_competition_repository",
+    "build_cost_meter",
+    "build_cost_report_usecase",
     "build_generate_material_usecase",
     "build_identify_usecase",
     "build_llm",
@@ -48,6 +53,7 @@ __all__ = [
     "build_report_usecase",
     "build_scan_usecase",
     "build_search",
+    "build_usage_repository",
     "build_usecases",
 ]
 
@@ -69,14 +75,44 @@ def build_notice_source() -> RequestsNoticeSource:
     return RequestsNoticeSource(settings.yaml_config.sources[0])
 
 
-def build_llm() -> OpenAiCompatLlm:
-    """组装 LLM 客户端：按当前生效的模型档案创建（P2）。
+def build_llm(task_type: str = "identify") -> OpenAiCompatLlm:
+    """组装 LLM 客户端：按任务路由模型档案，并挂上成本计价器（P2 + M1）。
 
-    密钥缺失会在这里立刻报错（而不是等到调用时），错误信息里
-    会指明该设置哪个环境变量。
+    路由规则见 settings.profile_for_task：identify 这类高频任务可以
+    在 config.yaml 的 routing 里指到便宜档案，generate 指到强档案。
+    计价器（CostMeter）在这一层挂上——每次调用自动记账 + 预算熔断，
+    用例层完全无感。密钥缺失会在这里立刻报错。
     """
     settings = load_settings_or_raise()
-    return OpenAiCompatLlm(settings.active_profile)
+    profile = settings.profile_for_task(task_type)
+    meter = build_cost_meter(settings, profile, task_type)
+    return OpenAiCompatLlm(profile, meter=meter)
+
+
+def build_usage_repository() -> SqliteUsageRepository:
+    """组装成本台账仓储（M1）：和通知/卡片仓储共用同一个数据库文件。"""
+    settings = load_settings_or_raise()
+    return SqliteUsageRepository(settings.database_url)
+
+
+def build_cost_meter(
+    settings: Settings,
+    profile,
+    task_type: str,
+    note: str = "",
+) -> CostMeter:
+    """组装计价器：台账仓储 + 预算上限（来自 config.yaml / 环境变量）。
+
+    单独拎出来的原因：identify（本函数）和 agent 循环（下面的
+    generate/study_path 组装）两条通路都要计价器，规则只写一处。
+    """
+    return CostMeter(
+        profile=profile,
+        task_type=task_type,
+        repository=build_usage_repository(),
+        budget_yuan=settings.budget_per_task_yuan,
+        note=note,
+    )
 
 
 def build_notice_repository() -> SqliteNoticeRepository:
@@ -109,7 +145,7 @@ def build_identify_usecase() -> IdentifyCompetitions:
     具体实现都由本函数决定。
     """
     return IdentifyCompetitions(
-        build_notice_source(), build_llm(), build_competition_repository()
+        build_notice_source(), build_llm("identify"), build_competition_repository()
     )
 
 
@@ -118,17 +154,38 @@ def build_report_usecase() -> GenerateReport:
     return GenerateReport(build_competition_repository())
 
 
+def build_cost_report_usecase() -> CostReport:
+    """组装 cost_report 用例：查成本台账并汇总（M1，不需要 LLM 密钥）。"""
+    return CostReport(build_usage_repository())
+
+
+def _build_context_config():
+    """按配置生成 AgentScope 的上下文压缩配置（M1）。
+
+    放在 try 里 import：ContextConfig 是框架的类型，只有真的走到
+    agent 循环组装时才需要它（保持"不跑 agent 就不碰框架"的老规矩）。
+    """
+    from agentscope.agent import ContextConfig
+
+    settings = load_settings_or_raise()
+    return ContextConfig(trigger_ratio=settings.yaml_config.context.trigger_ratio)
+
+
 def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateMaterial:
     """组装 generate_material 用例（P4，循环由 AgentScope 驱动）。
 
+    M1 起附带：按任务路由的模型档案 + 计价器（预算熔断）+ 压缩配置。
     output_dir 默认项目根的 output/；测试时传临时目录。
     """
     settings = load_settings_or_raise()
+    profile = settings.profile_for_task("generate")
     return GenerateMaterial(
-        profile=settings.active_profile,
+        profile=profile,
         source=build_notice_source(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
+        meter=build_cost_meter(settings, profile, "generate"),
+        context_config=_build_context_config(),
     )
 
 
@@ -139,57 +196,82 @@ def build_search() -> BingSearch:
 
 
 def build_plan_study_path_usecase(output_dir: Path | None = None) -> PlanStudyPath:
-    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5）。"""
+    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价）。"""
     settings = load_settings_or_raise()
+    profile = settings.profile_for_task("study_path")
     return PlanStudyPath(
-        profile=settings.active_profile,
+        profile=profile,
         search=build_search(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
+        meter=build_cost_meter(settings, profile, "study_path"),
+        context_config=_build_context_config(),
     )
 
 
 def build_usecases() -> Usecases:
-    """组装 HTTP 层可用的全部用例（P6）。
+    """组装 HTTP 层可用的全部用例（P6 + M1 的 /cost）。
 
-    降级策略：LLM 相关的用例（识别/生成/备考路径）依赖密钥，
-    密钥没配时它们保持 None（对应接口返回 503 + 配置指引），
-    其余接口（扫描/查询/报告）照常可用——同学没密钥也能跑通前半程。
+    降级策略（沿 v1）：LLM 相关的用例（识别/生成/备考路径）依赖密钥，
+    密钥没配（或 routing 指到不存在的档案）时它们保持 None——对应接口
+    返回 503 + 配置指引；其余接口（扫描/查询/报告/账单）照常可用。
+    M1 起每个 LLM 用例各自路由档案、各挂各的计价器。
     """
     settings = load_settings_or_raise()
 
-    try:
-        llm = build_llm()
-    except RuntimeError:
-        # 密钥缺失：不让整个服务起不来，只降级 LLM 相关接口
-        llm = None
+    def routed_profile(task_type: str):
+        """按任务取档案；routing 配错档案名时返回 None（降级对应接口）。"""
+        try:
+            return settings.profile_for_task(task_type)
+        except KeyError:
+            return None
+
+    def llm_ready(profile) -> bool:
+        """密钥配好了这个任务的 LLM 用例才能上线（否则接口 503）。"""
+        return profile is not None and profile.resolve_api_key() is not None
+
+    identify_profile = routed_profile("identify")
+    generate_profile = routed_profile("generate")
+    study_profile = routed_profile("study_path")
 
     return Usecases(
         scan=ScanSite(build_notice_source(), build_notice_repository()),
         identify=(
-            IdentifyCompetitions(build_notice_source(), llm, build_competition_repository())
-            if llm is not None
+            IdentifyCompetitions(
+                build_notice_source(),
+                OpenAiCompatLlm(
+                    identify_profile,
+                    meter=build_cost_meter(settings, identify_profile, "identify"),
+                ),
+                build_competition_repository(),
+            )
+            if llm_ready(identify_profile)
             else None
         ),
         report=GenerateReport(build_competition_repository()),
+        cost_report=build_cost_report_usecase(),
         generate_material=(
             GenerateMaterial(
-                profile=settings.active_profile,
+                profile=generate_profile,
                 source=build_notice_source(),
                 competition_repository=build_competition_repository(),
                 output_dir=PROJECT_ROOT / "output",
+                meter=build_cost_meter(settings, generate_profile, "generate"),
+                context_config=_build_context_config(),
             )
-            if llm is not None
+            if llm_ready(generate_profile)
             else None
         ),
         study_path=(
             PlanStudyPath(
-                profile=settings.active_profile,
+                profile=study_profile,
                 search=build_search(),
                 competition_repository=build_competition_repository(),
                 output_dir=PROJECT_ROOT / "output",
+                meter=build_cost_meter(settings, study_profile, "study_path"),
+                context_config=_build_context_config(),
             )
-            if llm is not None
+            if llm_ready(study_profile)
             else None
         ),
     )

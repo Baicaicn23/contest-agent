@@ -42,6 +42,12 @@ class ModelProfile(BaseModel):
     api_key_env: str  # 存放密钥的"环境变量名"——注意存的是名字，不是密钥本身
     model: str        # 具体模型名，如 deepseek-chat
 
+    # —— 计费单价（M1 成本台账用），单位：元 / 百万 token ——
+    # 照服务商价目页填（如 DeepSeek 官网"定价"页）；不填 = None，
+    # 台账照样记 token 量，但算不出钱。调价时改这里即可，代码不动
+    input_price_per_m: float | None = None   # 输入单价
+    output_price_per_m: float | None = None  # 输出单价
+
     def resolve_api_key(self) -> str | None:
         """按档案里记录的变量名，去环境变量里取真实密钥；没设置就返回 None。"""
         return os.environ.get(self.api_key_env)
@@ -72,6 +78,18 @@ class SearchConfig(BaseModel):
     max_results: int = Field(default=6, ge=1, le=20)
 
 
+class ContextSettings(BaseModel):
+    """上下文管理的配置（M1：agent 循环的自动压缩阈值）。
+
+    trigger_ratio 是"上下文占用达到模型窗口的百分之多少时触发压缩"。
+    压缩本体由 AgentScope 框架执行（把旧对话压成结构化摘要），
+    我们只负责把阈值配置进去——框架已验证的能力不自研（ADR-002 哲学）。
+    """
+
+    trigger_ratio: float = Field(default=0.8, gt=0, le=0.9)
+    # le=0.9：压缩本身也要占窗口，阈值给到 90% 以上就来不及了（框架的同款约束）
+
+
 class YamlConfig(BaseModel):
     """config.yaml 整个文件的结构化映射：yaml 长什么样，这里就定义成什么样。"""
 
@@ -79,6 +97,12 @@ class YamlConfig(BaseModel):
     models: dict[str, ModelProfile]         # 全部模型档案，键是档案名
     sources: list[SourceConfig]             # 全部要扫描的网站
     search: SearchConfig = SearchConfig()   # 联网搜索配置（缺省也能跑）
+    # —— M1 新增：按任务路由模型档案。键是任务名（identify / generate /
+    # study_path），值是档案名；某个任务没写就用 active_model 兜底。
+    # 用途：高频任务配便宜模型、低频重活配强模型，省钱不吃性能
+    routing: dict[str, str] = Field(default_factory=dict)
+    budget_per_task_yuan: float | None = None  # 单任务预算上限（元）；None = 不限
+    context: ContextSettings = ContextSettings()  # agent 循环的上下文压缩阈值
 
 
 class Settings(BaseModel):
@@ -88,6 +112,7 @@ class Settings(BaseModel):
     database_url: str        # 数据库连接串（P3 存储层用）
     active_model: str        # 当前生效的模型档案名
     yaml_config: YamlConfig  # 站点源 + 全部模型档案
+    budget_per_task_yuan: float | None = None  # 单任务预算上限（M1，env 可覆盖）
 
     @property  # @property 把方法包装成属性：写 settings.active_profile，不用加括号
     def active_profile(self) -> ModelProfile:
@@ -95,6 +120,21 @@ class Settings(BaseModel):
         profile = self.yaml_config.models.get(self.active_model)
         if profile is None:
             raise KeyError(f"active_model '{self.active_model}' 不在 config.yaml models 中")
+        return profile
+
+    def profile_for_task(self, task_type: str) -> ModelProfile:
+        """按任务名拿模型档案（M1 模型路由的解析入口）。
+
+        规则：先查 routing 表（identify -> 便宜档案、generate -> 强档案），
+        没配这个任务就用 active_model 兜底。routing 写错档案名时
+        在这里明确报错，而不是等到调用时才炸。
+        """
+        name = self.yaml_config.routing.get(task_type) or self.active_model
+        profile = self.yaml_config.models.get(name)
+        if profile is None:
+            raise KeyError(
+                f"任务 {task_type!r} 路由到的档案 '{name}' 不在 config.yaml models 中"
+            )
         return profile
 
 
@@ -155,11 +195,21 @@ def load_settings() -> Settings:
     load_dotenv()  # 先把 .env 里的密钥装进环境，后面的解析才有得用
     yaml_config = load_yaml_config()
 
+    # 预算上限支持环境变量覆盖（BUDGET_PER_TASK_YUAN=5 表示 5 元；
+    # 设成 0 或留空表示关闭），方便临时实验不改文件
+    raw_budget: str | None = os.environ.get("BUDGET_PER_TASK_YUAN")
+    if raw_budget:
+        parsed = float(raw_budget)
+        budget = parsed if parsed > 0 else None
+    else:
+        budget = yaml_config.budget_per_task_yuan
+
     return Settings(
         # os.environ.get(键, 默认值)：环境变量没设置时用默认值
         database_url=os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL),
         active_model=os.environ.get("ACTIVE_MODEL", yaml_config.active_model),
         yaml_config=yaml_config,
+        budget_per_task_yuan=budget,
     )
 
 

@@ -15,9 +15,10 @@ DeepSeek？GLM？）。端口就是把"需要什么能力"写成接口。
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
-from .entities import Competition, Notice
+from .entities import Competition, Notice, UsageEntry
 
 
 class NoticeSourcePort(Protocol):
@@ -79,6 +80,24 @@ class LlmPort(Protocol):
         识别/提取这类"一问一答"的任务走这里，不走 agent 循环——
         更快、更便宜、更好测。
         """
+        ...
+
+
+class UsageRepositoryPort(Protocol):
+    """能力六：能把每次 LLM 调用的花费记下来、按条件查出来（M1 由 infrastructure/persistence 实现）。
+
+    成本台账是 v2 一切优化的"度量衡"：没有它，压缩省没省钱、
+    路由选没选对模型，全都只能靠感觉。
+    """
+
+    def record(self, entry: UsageEntry) -> None:
+        """记一笔流水（一次 LLM 调用）。只增不改不删——账本不能涂改。"""
+        ...
+
+    def list_entries(
+        self, task_type: str | None = None, on_date: date | None = None
+    ) -> list[UsageEntry]:
+        """按条件查流水：不传条件 = 全部；task_type 按任务过滤；on_date 只看某一天。"""
         ...
 
 

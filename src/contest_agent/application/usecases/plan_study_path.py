@@ -79,6 +79,8 @@ class PlanStudyPath:
         max_iters: int = 14,
         max_verify_rounds: int = MAX_VERIFY_ROUNDS,
         runner: Callable | None = None,
+        meter=None,
+        context_config=None,
     ):
         self.profile = profile
         self.search = search
@@ -88,6 +90,9 @@ class PlanStudyPath:
         self.max_verify_rounds = max_verify_rounds
         # runner 可注入：生产用 AgentScope 门面，测试用假 runner
         self.runner = runner or run_material_generation
+        # M1 可选注入：计价器（记账+熔断）与上下文压缩配置，原样透传给 runner
+        self.meter = meter
+        self.context_config = context_config
 
     def execute(self, competition_name: str | None = None) -> StudyPathResult:
         """生成备考路径并校验引用；有死链自动反馈重做一轮。"""
@@ -130,6 +135,8 @@ class PlanStudyPath:
                 user_request=request,
                 tools_builder=tools_builder,
                 max_iters=self.max_iters,
+                meter=self.meter,
+                context_config=self.context_config,
             )
             tool_trace = list(tools.trace)
 

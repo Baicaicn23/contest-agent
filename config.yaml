@@ -3,6 +3,24 @@
 
 active_model: deepseek
 
+# —— M1 成本控制 ——
+# 单任务预算上限（元）：一次 sai identify / generate / study-path 的 LLM 花费
+# 达到这个数就熔断（后续调用被拦下，已完成部分保留）。null = 不限预算。
+# 临时实验可用环境变量覆盖：BUDGET_PER_TASK_YUAN=5（设 0 表示关闭）
+budget_per_task_yuan: null
+
+# 按任务路由模型档案：高频任务配便宜模型、低频重活配强模型。
+# 没列出的任务用 active_model 兜底。台账（sai cost）里能查证每个任务实际用了谁
+routing:
+  identify: deepseek     # 识别是"一问一答"的高频调用，适合便宜快速的模型
+  generate: deepseek     # 材料生成是多轮重活，适合强模型
+  study_path: deepseek   # 备考路径要联网搜索多轮，同样吃模型能力
+
+# agent 循环的上下文压缩阈值：上下文占用达到模型窗口的 80% 时，
+# 框架自动把旧对话压成结构化摘要（长任务不再撑爆窗口，见 ADR-003）
+context:
+  trigger_ratio: 0.8
+
 # 联网搜索（P5 学习路径用）：国内可直连、无需密钥；主引擎被风控时自动切回退引擎
 search:
   engine_url: https://cn.bing.com/search?q={query}&count=12   # 主引擎：Bing 中国版
@@ -14,10 +32,16 @@ models:
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
     model: deepseek-chat
+    # 计费单价（元/百万 token），照服务商价目页填，调价改这里即可。
+    # 不填 = 台账只记 token 不算钱。以下为 2026-09 填写的参考值
+    input_price_per_m: 2.0
+    output_price_per_m: 8.0
   qwen:
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     api_key_env: DASHSCOPE_API_KEY
     model: qwen-plus
+    input_price_per_m: 0.8
+    output_price_per_m: 2.0
 
 sources:
   - name: cupk_szxy   # 中国石油大学（北京）克拉玛依校区 · 数理与人工智能学院
