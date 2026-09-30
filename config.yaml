@@ -1,0 +1,22 @@
+# 配置文件：站点源 + 模型档案。
+# 密钥绝不写在这里，只写"密钥的环境变量名"（env 优先原则见 settings.py）。
+
+active_model: deepseek
+
+models:
+  deepseek:
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    model: deepseek-chat
+  qwen:
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    model: qwen-plus
+
+sources:
+  - name: math_ai_college
+    # TODO(P1): 换成学院官网真实域名（v1.1 实测：国内直连、纯静态）
+    base_url: https://example.edu.cn
+    list_path: /szxy/tzgg1/
+    detail_pattern: /szxy/c/{date}/{id}.shtml
+    request_interval: 1.5   # 爬虫限速：相邻请求最小间隔（秒）
