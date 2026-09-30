@@ -90,6 +90,16 @@ def test_notice_repository_is_idempotent(tmp_path) -> None:
     assert repo.list_notices()[0].title == "通知一"
 
 
+def test_repository_creates_missing_directories(tmp_path) -> None:
+    """全新克隆回归：数据库文件所在的目录不存在时自动创建（data/ 不进 git）。"""
+    deep_url = f"sqlite:///{tmp_path / 'deep' / 'nested' / 'fresh.db'}"
+
+    repo = SqliteCompetitionRepository(deep_url)
+    repo.save_if_absent(_sample_card())
+
+    assert repo.count() == 1
+
+
 # ---------- 用例层：扫描/识别接上仓储后的编排 ----------
 
 

@@ -11,6 +11,7 @@ NoticeRepositoryPort 接口，这两个具体类名只出现在 composition.py�
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -21,7 +22,7 @@ from .models import Base, CompetitionModel, NoticeModel
 
 
 def _build_engine(database_url: str) -> Engine:
-    """按连接串创建数据库引擎，处理 SQLite 的两个特殊点。
+    """按连接串创建数据库引擎，处理 SQLite 的三个特殊点。
 
     连接串格式（类比 JDBC 的 jdbc:mysql://...）：
         sqlite:///data/contest_agent.db   文件库
@@ -30,13 +31,19 @@ def _build_engine(database_url: str) -> Engine:
     connect_args: dict = {}
     engine_kwargs: dict = {}
 
-    if database_url.startswith("sqlite"):
-        # SQLite 默认禁止跨线程共用同一个连接；
+    if database_url.startswith("sqlite") and not database_url.endswith(":memory:"):
+        # 坑一（全新克隆必踩）：sqlite 不会自动创建文件所在的目录，
+        # git 又不跟踪空目录——所以克隆下来 data/ 不存在，直接启动会报
+        # "unable to open database file"。这里自动把目录建出来。
+        db_file = database_url.split("sqlite:///", 1)[-1]
+        if db_file:
+            Path(db_file).parent.mkdir(parents=True, exist_ok=True)
+        # 坑二：SQLite 默认禁止跨线程共用同一个连接，
         # FastAPI 的多线程环境和测试工具都需要这个开关
         connect_args["check_same_thread"] = False
 
     if database_url.endswith(":memory:"):
-        # 内存库的默认行为：每个新连接拿到一个全新的空库，
+        # 坑三：内存库的默认行为是"每个新连接 = 全新的空库"，
         # 第二个会话会"找不到表"。StaticPool 让所有会话复用同一个连接，
         # 内存库才能像文件库一样连续使用
         engine_kwargs["poolclass"] = StaticPool
