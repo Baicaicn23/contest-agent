@@ -65,9 +65,13 @@ uv run sai sessions && uv run sai replay 1   # 任务会话列表 + 回放一次
 uv run sai eval                  # 识别能力评测（31 条真实考卷 + 基线防退化比对）
 uv run sai watch                 # 盯一次官网，新比赛推 webhook/邮件/文件（cron 接管定时）
 
-# Web 界面（可选）：构建前端后 sai serve 单端口直达
+# 一键启动（推荐）：首次自动构建前端，之后直接起服务
+./start.sh                       # http://127.0.0.1:8000 即是界面 + API
+./start.sh --build --port 8001   # 强制重建前端 / 换端口
+
+# 也可以分步手动跑：
 cd frontend && npm install && npm run build
-uv run sai serve                 # http://127.0.0.1:8000 即是界面 + API
+uv run sai serve                 # 同上，界面 + API
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
 
