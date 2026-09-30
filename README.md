@@ -55,6 +55,22 @@ uv run pytest                    # 跑测试（联网验收另跑 uv run pytest 
 ```
 
 <details>
+<summary>📦 API 一览（<code>uv run sai serve</code> 后可用）</summary>
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/health` | 健康检查 |
+| POST | `/scan` | 扫描官网通知（body: `{"limit": 10}`） |
+| GET | `/competitions` | 查询已识别的比赛卡片 |
+| GET | `/report` | Markdown 情报报告 |
+| POST | `/generate` | 生成参赛材料（body: `{"skill": "ppt-outline"}`，需密钥，耗时 30-90s） |
+| POST | `/study-path` | 生成备考路径（body: `{"competition": "CCF"}`，需密钥，耗时 40-90s） |
+
+密钥未配置时，LLM 相关接口返回 503 + 配置指引，其余接口照常可用。
+
+</details>
+
+<details>
 <summary>📦 命令一览</summary>
 
 | 命令 | 作用 |
@@ -115,7 +131,7 @@ docs/adr/              # 架构决策记录
 - [x] **P3** 存储报告：SQLAlchemy 落库、幂等去重、Markdown 报告
 - [x] **P4** 手写 harness：ReAct 循环 + 工具注册 + Skill 生成参赛材料
 - [x] **P5** 学习路径：考试型比赛备考路径（强制真实引用校验）
-- [ ] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0
+- [x] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0
 - [ ] **v2** 上下文管理 / 记忆 / 成本台账 / 评测套件 / 多校源
 
 ## 🎓 这也是一个学习项目
