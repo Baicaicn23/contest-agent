@@ -2,7 +2,7 @@
 
 自动盯学院官网通知 → LLM 识别比赛 → 提取结构化比赛卡片 → 交付物型按 Skill 生成材料（PPT 大纲/计划书/稿子）、考试型生成强制真实引用的学习路径。
 
-架构：DDD 洋葱四层 + composition 装配根 + settings 环境优先配置，Agent 层为**自研手写 harness**（无第三方框架，见 [docs/adr/ADR-001](docs/adr/ADR-001-agent层自研手写harness.md)）。完整规划见 [docs/开发文档-v1.md](docs/开发文档-v1.md)，逐阶段学习讲解见 [讲解文档/](讲解文档/)。
+架构：DDD 洋葱四层 + composition 装配根 + settings 环境优先配置，Agent 层为**自研手写 harness**（无第三方框架，见 [docs/adr/ADR-001](docs/adr/ADR-001-agent层自研手写harness.md)）。完整规划见 [docs/开发文档-v1.md](docs/开发文档-v1.md)，逐阶段学习讲解见 Obsidian 笔记库 `/Users/momo/obsidian/notes/水赛codex/`。
 
 ## 快速开始
 
