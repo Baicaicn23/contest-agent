@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -31,7 +32,7 @@ from agentscope.permission._decision import PermissionDecision
 from agentscope.tool import FunctionTool, Toolkit
 
 from ...domain.entities import Notice
-from ...domain.ports import CompetitionRepositoryPort, NoticeSourcePort
+from ...domain.ports import CompetitionRepositoryPort, NoticeSourcePort, SearchPort
 from ...settings import ModelProfile
 
 # 发给模型的正文上限：通知全文可能很长，模型不需要逐字看完全文
@@ -89,6 +90,30 @@ def build_chat_model(profile: ModelProfile) -> ChatModelBase:
     )
 
 
+def _make_save_material(output_dir: Path, trace: list[str]) -> Callable[..., str]:
+    """制造"保存材料"工具函数（材料和备考路径两个任务共用）。
+
+    单独抽出来是因为它带着安全硬约束（防路径穿越、只许 .md），
+    两处使用必须保证规则完全一致——抽成一处，规则就不会漂移。
+    """
+    def save_material(filename: str, content: str) -> str:
+        """把写好的材料保存为 Markdown 文件。filename 只写文件名（如 ppt-outline.md），content 是完整全文。"""
+        trace.append(f"save_material({filename}, {len(content)} 字)")
+        # 硬约束一：只允许纯文件名，不许带路径（防 ../ 目录穿越）
+        if Path(filename).name != filename:
+            return f"保存失败：文件名 {filename!r} 不能包含路径，只写文件名如 'ppt-outline.md'。"
+        # 硬约束二：只允许 Markdown 文件，材料格式保持统一
+        if not filename.endswith(".md"):
+            return "保存失败：文件必须以 .md 结尾。"
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        target = output_dir / filename
+        target.write_text(content, encoding="utf-8")
+        return f"已保存：{target}（{len(content)} 字）"
+
+    return save_material
+
+
 async def build_material_tools(
     source: NoticeSourcePort,
     competition_repository: CompetitionRepositoryPort,
@@ -125,20 +150,7 @@ async def build_material_tools(
             return "这条通知没有抓到正文（可能是图片/外链形式）。"
         return notice.content[:MAX_NOTICE_CHARS]
 
-    def save_material(filename: str, content: str) -> str:
-        """把写好的材料保存为 Markdown 文件。filename 只写文件名（如 ppt-outline.md），content 是完整全文。"""
-        tools.trace.append(f"save_material({filename}, {len(content)} 字)")
-        # 硬约束一：只允许纯文件名，不许带路径（防 ../ 目录穿越）
-        if Path(filename).name != filename:
-            return f"保存失败：文件名 {filename!r} 不能包含路径，只写文件名如 'ppt-outline.md'。"
-        # 硬约束二：只允许 Markdown 文件，材料格式保持统一
-        if not filename.endswith(".md"):
-            return "保存失败：文件必须以 .md 结尾。"
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-        target = output_dir / filename
-        target.write_text(content, encoding="utf-8")
-        return f"已保存：{target}（{len(content)} 字）"
+    save_material = _make_save_material(output_dir, tools.trace)
 
     functions = {
         "list_competitions": list_competitions,
@@ -147,6 +159,60 @@ async def build_material_tools(
     }
     for func in functions.values():
         # permission=ALLOWED：无人值守授权自动执行（见模块 docstring 第 2 点）
+        await tools.toolkit.add_tool(FunctionTool(func=func, permission=ALLOWED))
+    tools.functions = functions
+    return tools
+
+
+async def build_study_tools(
+    search: SearchPort,
+    competition_repository: CompetitionRepositoryPort,
+    output_dir: Path,
+) -> MaterialTools:
+    """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。"""
+
+    tools = MaterialTools(toolkit=Toolkit())
+
+    def search_web(query: str, max_results: int = 5) -> str:
+        """联网搜索资料。query 填搜索词（如 '蓝桥杯 真题 备考'），返回带网址的结果列表。"""
+        tools.trace.append(f"search_web({query!r})")
+        results = search.search(query, top_k=max_results)
+        if not results:
+            return "搜索暂时没有返回结果（可能网络波动），请换个搜索词重试。"
+        lines = []
+        for index, item in enumerate(results, start=1):
+            lines.append(f"{index}. {item['title']}\n   网址：{item['url']}\n   摘要：{item['snippet']}")
+        return "\n".join(lines)
+
+    def read_page(url: str) -> str:
+        """读取一个网页的正文内容，用于确认链接真实可用、内容相关后再引用。url 填完整网址。"""
+        tools.trace.append(f"read_page({url})")
+        return search.read_page(url)
+
+    save_material = _make_save_material(output_dir, tools.trace)
+
+    def list_competitions() -> str:
+        """列出数据库里全部比赛卡片，含名称、类型、截止日期和通知链接。"""
+        tools.trace.append("list_competitions()")
+        cards = competition_repository.list_all()
+        if not cards:
+            return "库里还没有比赛卡片。请提示用户先运行 sai identify 识别比赛。"
+        lines = []
+        for index, card in enumerate(cards, start=1):
+            deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "未写"
+            lines.append(
+                f"{index}. {card.name}（{card.type}，截止 {deadline}）"
+                f" 通知：{card.notice_url}"
+            )
+        return "\n".join(lines)
+
+    functions = {
+        "search_web": search_web,
+        "read_page": read_page,
+        "save_material": save_material,
+        "list_competitions": list_competitions,
+    }
+    for func in functions.values():
         await tools.toolkit.add_tool(FunctionTool(func=func, permission=ALLOWED))
     tools.functions = functions
     return tools
@@ -185,20 +251,20 @@ def run_material_generation(
     profile: ModelProfile,
     system_prompt: str,
     user_request: str,
-    source: NoticeSourcePort,
-    competition_repository: CompetitionRepositoryPort,
-    output_dir: Path,
+    tools_builder: Callable[[], Awaitable[MaterialTools]],
     max_iters: int = 8,
 ) -> tuple[AgentOutcome, MaterialTools]:
     """同步门面：建工具箱 -> 组 Agent -> 跑循环，返回结果和工具轨迹。
 
-    用 asyncio.run 包装框架的异步调用，让用例层和 CLI 保持同步代码风格。
-    注意：如果未来 FastAPI 接口要在异步环境里调用本函数，
-    需要换成 await 版本（P6 处理）。
+    tools_builder：零参数的异步函数，返回装好工具的 MaterialTools
+    （异步是框架要求——add_tool 是异步方法）。材料生成和备考路径
+    两个任务各自传入自己的工具箱构建器。
+    用 asyncio.run 包装异步调用，让用例层和 CLI 保持同步代码风格。
+    注意：未来 FastAPI 异步环境调用时要换成 await 版本（P6 处理）。
     """
 
     async def pipeline() -> tuple[AgentOutcome, MaterialTools]:
-        tools = await build_material_tools(source, competition_repository, output_dir)
+        tools = await tools_builder()
         outcome = await _run_material_agent_async(
             profile, system_prompt, user_request, tools, max_iters
         )

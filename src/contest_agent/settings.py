@@ -62,12 +62,23 @@ class SourceConfig(BaseModel):
     # 选择器写在配置而不是代码里：网站改版时改配置即可，代码不动
 
 
+class SearchConfig(BaseModel):
+    """联网搜索的配置（P5 学习路径用）。"""
+
+    engine_url: str = "https://cn.bing.com/search?q={query}&count=12"
+    # {query} 占位符会被替换为 URL 编码后的搜索词
+    fallback_engine_url: str = "https://www.so.com/s?q={query}"
+    # 回退搜索引擎：主引擎被风控/失败时自动切换（360 搜索，国内直连）
+    max_results: int = Field(default=6, ge=1, le=20)
+
+
 class YamlConfig(BaseModel):
     """config.yaml 整个文件的结构化映射：yaml 长什么样，这里就定义成什么样。"""
 
     active_model: str = "deepseek"          # 当前生效的模型档案名
     models: dict[str, ModelProfile]         # 全部模型档案，键是档案名
     sources: list[SourceConfig]             # 全部要扫描的网站
+    search: SearchConfig = SearchConfig()   # 联网搜索配置（缺省也能跑）
 
 
 class Settings(BaseModel):

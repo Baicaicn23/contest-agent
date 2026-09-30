@@ -83,12 +83,25 @@ class LlmPort(Protocol):
 
 
 class SearchPort(Protocol):
-    """能力四：会联网搜索并抓正文，而且失败了不炸（P5 由 infrastructure/search 实现）。"""
+    """能力四：会联网搜索、读网页、验证链接，而且失败了不炸（P5 由 infrastructure/search 实现）。
+
+    "带降级"贯穿三个方法：网络上谁都说不准，
+    失败时返回空结果/False/错误说明，主流程必须能带着"没搜到"继续走。
+    """
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """搜索并返回前 top_k 条结果：[{title, url, snippet}, ...]。
+        """搜索并返回前 top_k 条结果：[{title, url, snippet}, ...]；失败返回空列表。"""
+        ...
 
-        "带降级"的意思：搜索挂了就返回空列表，而不是抛异常把整个任务搞死——
-        网络上的事谁都说不准，主流程必须能带着"没搜到"继续走。
+    def read_page(self, url: str, max_chars: int = 3000) -> str:
+        """读取网页正文文本（截断到 max_chars）；失败返回说明文字而非抛异常。"""
+        ...
+
+    def check_url(self, url: str) -> tuple[bool, str]:
+        """验证链接是否真实存在（引用存在性校验的底层）。
+
+        返回 (是否存在, 说明)。判定尺度：
+        正常响应 = 存在；404/超时/解析失败 = 不存在；
+        403/429（存在但拒绝机器人）= 存在但注明。
         """
         ...

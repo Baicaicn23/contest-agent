@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from .application.usecases.generate_material import GenerateMaterial
 from .application.usecases.generate_report import GenerateReport
 from .application.usecases.identify_competitions import IdentifyCompetitions
+from .application.usecases.plan_study_path import PlanStudyPath
 from .application.usecases.scan_site import ScanSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
@@ -30,6 +31,7 @@ from .infrastructure.persistence.repository import (
     SqliteCompetitionRepository,
     SqliteNoticeRepository,
 )
+from .infrastructure.search.web_search import BingSearch
 from .presentation.server import create_app
 from .settings import PROJECT_ROOT, Settings, load_settings
 
@@ -42,8 +44,10 @@ __all__ = [
     "build_llm",
     "build_notice_repository",
     "build_notice_source",
+    "build_plan_study_path_usecase",
     "build_report_usecase",
     "build_scan_usecase",
+    "build_search",
 ]
 
 
@@ -124,6 +128,23 @@ def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateM
     return GenerateMaterial(
         profile=settings.active_profile,
         source=build_notice_source(),
+        competition_repository=build_competition_repository(),
+        output_dir=output_dir or (PROJECT_ROOT / "output"),
+    )
+
+
+def build_search() -> BingSearch:
+    """组装联网搜索：Bing 中国版（P5，无需密钥）。"""
+    settings = load_settings_or_raise()
+    return BingSearch(settings.yaml_config.search)
+
+
+def build_plan_study_path_usecase(output_dir: Path | None = None) -> PlanStudyPath:
+    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5）。"""
+    settings = load_settings_or_raise()
+    return PlanStudyPath(
+        profile=settings.active_profile,
+        search=build_search(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
     )

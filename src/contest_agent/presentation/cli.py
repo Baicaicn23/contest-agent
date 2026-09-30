@@ -44,9 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default=None, help="输出文件路径（默认 output/contest_report.md）"
     )
 
-    # 子命令四：sai generate [--skill 名] [--competition 关键字]（P4：手写 harness）
+    # 子命令四：sai generate [--skill 名] [--competition 关键字]（P4：AgentScope 循环）
     generate = sub.add_parser(
-        "generate", help="为比赛生成参赛材料（ReAct 循环 + 工具 + 技能）"
+        "generate", help="为比赛生成参赛材料（AgentScope ReAct 循环 + 工具 + 技能）"
     )
     generate.add_argument(
         "--skill", default="ppt-outline",
@@ -58,6 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     generate.add_argument(
         "--max-steps", type=int, default=8, help="agent 循环最大步数（防死循环）"
+    )
+
+    # 子命令五：sai study-path [--competition 关键字]（P5：备考路径 + 引用校验）
+    study = sub.add_parser(
+        "study-path",
+        help="为考试型比赛生成备考学习路径（联网搜索 + 引用存在性校验）",
+    )
+    study.add_argument(
+        "--competition", default=None,
+        help="比赛名称关键字（默认优先取库里第一张考试型卡片）",
     )
 
     # 子命令二：sai model [list | use 档案名]
@@ -232,6 +242,46 @@ def _run_generate(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_study_path(args: argparse.Namespace) -> int:
+    """执行 sai study-path：生成备考路径并对全部引用做存在性校验。
+
+    输出里每个链接都带 ✅/❌ 标记——❌ 意味着程序验证过这个链接打不开，
+    这类链接绝对不会原样出现在最终材料里（有死链会被打回重做）。
+    """
+    from ..composition import build_plan_study_path_usecase
+
+    try:
+        usecase = build_plan_study_path_usecase()
+        result = usecase.execute(competition_name=args.competition)
+    except (ConnectionError, RuntimeError, FileNotFoundError) as error:
+        print(f"生成失败：{error}")
+        return 1
+
+    ok_count = sum(1 for c in result.citations if c["ok"])
+    print(f"任务：为「{result.competition_name}」生成备考学习路径")
+    status = "完成" if result.success else f"失败：{result.error or '仍有失效链接'}"
+    print(f"引用校验：{ok_count}/{len(result.citations)} 通过 ｜ 状态：{status}")
+
+    if result.tool_trace:
+        print("\n工具轨迹：")
+        for line in result.tool_trace:
+            print(f"  - {line}")
+
+    print("\n引用校验明细：")
+    for citation in result.citations:
+        mark = "✅" if citation["ok"] else "❌"
+        print(f"  {mark} {citation['url']}")
+        print(f"     {citation['note']}")
+
+    print("-" * 62)
+    print(result.final_text)
+    print("-" * 62)
+    if result.success:
+        print(f"路径已保存到 output/{result.material_file}，请打开检查内容质量。")
+        return 0
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -251,6 +301,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "generate":
         return _run_generate(args)
+
+    if args.command == "study-path":
+        return _run_study_path(args)
 
     if args.command == "model":
         # 在函数内部 import：只有真的执行到这个子命令才加载配置模块

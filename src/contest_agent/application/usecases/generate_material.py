@@ -18,7 +18,12 @@ from typing import Callable
 from ...domain.entities import Competition
 from ...domain.ports import CompetitionRepositoryPort, NoticeSourcePort
 from ...settings import ModelProfile
-from ..harness.agent_factory import AgentOutcome, MaterialTools, run_material_generation
+from ..harness.agent_factory import (
+    AgentOutcome,
+    MaterialTools,
+    build_material_tools,
+    run_material_generation,
+)
 from ..harness.skills import Skill, load_skill
 
 # 基础人设与工作守则：无论什么技能，agent 都要守的规矩。
@@ -86,13 +91,18 @@ class GenerateMaterial:
             f"比赛卡片：类型={card.type}，截止={deadline}，来源通知={card.notice_url}"
         )
 
+        async def tools_builder() -> MaterialTools:
+            return await build_material_tools(
+                source=self.source,
+                competition_repository=self.competition_repository,
+                output_dir=self.output_dir,
+            )
+
         outcome, tools = self.runner(
             profile=self.profile,
             system_prompt=system_prompt,
             user_request=user_request,
-            source=self.source,
-            competition_repository=self.competition_repository,
-            output_dir=self.output_dir,
+            tools_builder=tools_builder,
             max_iters=self.max_iters,
         )
 
