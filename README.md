@@ -46,6 +46,7 @@ cp .env.example .env   # 填入 DEEPSEEK_API_KEY
 # 3. 跑起来
 uv run sai scan                  # 扫描学院官网最新通知
 uv run sai identify              # 识别比赛：输出带原文证据的卡片
+uv run sai report                # 把库里的卡片渲染成 Markdown 情报报告
 uv run sai serve                 # 启动 API 服务，访问 /health
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
@@ -108,7 +109,7 @@ docs/adr/              # 架构决策记录
 - [x] **P0** 工程骨架：洋葱四层 + 装配根 + 环境优先配置
 - [x] **P1** 爬虫：真实站点接入、选择器配置化、限速容错
 - [x] **P2** 识别提取：粗筛 + 结构化调用 + 原文证据防幻觉
-- [ ] **P3** 存储报告：SQLAlchemy 落库、幂等去重、Markdown 报告
+- [x] **P3** 存储报告：SQLAlchemy 落库、幂等去重、Markdown 报告
 - [ ] **P4** 手写 harness：ReAct 循环 + 工具注册 + Skill 生成参赛材料
 - [ ] **P5** 学习路径：考试型比赛备考路径（强制真实引用校验）
 - [ ] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0

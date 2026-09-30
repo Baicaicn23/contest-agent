@@ -49,6 +49,22 @@ class CompetitionRepositoryPort(Protocol):
         ...
 
 
+class NoticeRepositoryPort(Protocol):
+    """能力五：能存取爬到的通知（P3 由 infrastructure/persistence 实现）。
+
+    通知入库的定位是"扫描台账"：哪些通知见过、什么时候见的。
+    有了它，重复扫描才做得到"0 重复入库"。
+    """
+
+    def save_notice_if_absent(self, notice: Notice) -> bool:
+        """幂等写入：以来源 URL 判重。返回 True 表示这次是新写入的。"""
+        ...
+
+    def list_notices(self) -> list[Notice]:
+        """列出全部已见过的通知。"""
+        ...
+
+
 class LlmPort(Protocol):
     """能力三：会调用大模型（P2 由 infrastructure/llm 实现，走 OpenAI 兼容接口）。"""
 
