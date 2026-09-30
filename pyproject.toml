@@ -1,0 +1,35 @@
+[project]
+name = "contest-agent"
+version = "0.1.0"
+description = "比赛 Agent 助手：盯官网、识别比赛、生成材料与学习路径（自研手写 harness）"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy>=2.0,<3",
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "openai>=1.40",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+sai = "contest_agent.presentation.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contest_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
