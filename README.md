@@ -10,9 +10,11 @@
 uv sync                          # 安装依赖（自动创建 .venv）
 cp .env.example .env             # 填入 DEEPSEEK_API_KEY
 uv run sai --help                # CLI 可用
+uv run sai scan                  # 扫描学院官网最新通知（P1 已可用）
+uv run sai scan --detail 1       # 扫描并打印第 1 条通知的详情正文
 uv run sai serve                 # 启动 FastAPI，默认 127.0.0.1:8000
 curl http://127.0.0.1:8000/health   # {"status":"ok",...}
-uv run pytest                    # 跑测试
+uv run pytest                    # 跑测试（联网测试用 uv run pytest -m live）
 ```
 
 ## 目录

@@ -57,6 +57,9 @@ class SourceConfig(BaseModel):
     request_interval: float = Field(default=1.5, ge=0.5)
     # ge=0.5 是 pydantic 的校验：值必须 >= 0.5。
     # 爬虫合规要求相邻请求至少间隔 1.5 秒，别给爬目标网站添堵
+    selectors: dict[str, str] = Field(default_factory=dict)
+    # CSS 选择器表：从列表页/详情页里"捞出"标题、链接、日期、正文的规则。
+    # 选择器写在配置而不是代码里：网站改版时改配置即可，代码不动
 
 
 class YamlConfig(BaseModel):

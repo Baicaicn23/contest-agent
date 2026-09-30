@@ -33,3 +33,7 @@ packages = ["src/contest_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not live'"   # 默认跳过联网测试；验收时用 uv run pytest -m live 显式跑
+markers = [
+    "live: 需要真实网络与目标站点的集成测试",
+]

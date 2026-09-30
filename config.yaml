@@ -14,9 +14,19 @@ models:
     model: qwen-plus
 
 sources:
-  - name: math_ai_college
-    # TODO(P1): 换成学院官网真实域名（v1.1 实测：国内直连、纯静态）
-    base_url: https://example.edu.cn
-    list_path: /szxy/tzgg1/
+  - name: cupk_szxy   # 中国石油大学（北京）克拉玛依校区 · 数理与人工智能学院
+    base_url: https://www.cupk.edu.cn
+    list_path: /szxy/tzgg/          # 通知公告列表页（首页"通知公告"栏目的 more 指向这里）
     detail_pattern: /szxy/c/{date}/{id}.shtml
     request_interval: 1.5   # 爬虫限速：相邻请求最小间隔（秒）
+
+    # CSS 选择器：2026-09-30 对照真实页面模板分析得出（过程见讲解文档 11-P1）。
+    # 网站改版时只需要更新这里，解析代码不用动。
+    selectors:
+      item: "div.middleArticle__art--art"           # 列表页：一条通知条目
+      link: "a.middleArticle__art--link"            # 列表页：条目里的标题链接
+      title: "h3.middleArticle__art--titles"        # 列表页：通知标题
+      year: "span.middleArticle__art--day"          # 列表页：日期的"年"部分（如 2026）
+      month_day: "span.middleArticle__art--month"   # 列表页：日期的"月-日"部分（如 09-29）
+      detail_title: "div.c-right-detail__title-name"    # 详情页：标题
+      detail_content: "div.c-right-detail__content"     # 详情页：正文容器

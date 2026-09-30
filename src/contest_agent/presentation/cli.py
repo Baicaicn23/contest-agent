@@ -24,8 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
     # 效果就像 git 后面可以接 add / commit / push 一样
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # 子命令一：sai scan（P0 占位，P1 爬虫落地后接上真实现）
-    sub.add_parser("scan", help="扫描官网通知并识别比赛（P1/P2 实现）")
+    # 子命令一：sai scan [--limit N] [--detail 序号]
+    scan = sub.add_parser("scan", help="扫描官网通知列表（可补抓指定条目的详情正文）")
+    scan.add_argument("--limit", type=int, default=10, help="最多显示多少条通知（默认 10）")
+    scan.add_argument(
+        "--detail", type=int, default=None, metavar="序号",
+        help="补抓第几条通知的详情正文（从 1 开始），如 --detail 1",
+    )
 
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
@@ -41,6 +46,46 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_scan(args: argparse.Namespace) -> int:
+    """执行 sai scan：调 scan_site 用例拿通知，按人能读的格式打印。
+
+    P1 阶段的"扫描"= 抓通知列表（+ 可选详情）。P2 会在同一条命令里
+    接上 LLM 识别，把比赛卡片一起打出来。
+    """
+    from ..composition import build_scan_usecase
+
+    detail_indexes = [args.detail] if args.detail is not None else []
+
+    try:
+        notices = build_scan_usecase().execute(
+            limit=args.limit, detail_indexes=detail_indexes
+        )
+    except ConnectionError as error:
+        # 网络层失败（重试耗尽）：给人看得懂的一句话，而不是甩一屏异常栈
+        print(f"扫描失败：{error}")
+        return 1
+
+    if not notices:
+        print("没有抓到任何通知（列表页为空或结构变了？检查 config.yaml 的选择器）")
+        return 1
+
+    print(f"扫描到 {len(notices)} 条通知：\n")
+    for number, notice in enumerate(notices, start=1):
+        date = notice.published_at.strftime("%Y-%m-%d") if notice.published_at else "????-??-??"
+        print(f"{number:>2}. [{date}] {notice.title}")
+        print(f"     {notice.source_url}")
+
+    # 用户点名要的那条详情，打印正文
+    if args.detail is not None and args.detail <= len(notices):
+        notice = notices[args.detail - 1]
+        print("\n" + "=" * 62)
+        print(f"详情（第 {args.detail} 条）：{notice.title}")
+        print("=" * 62)
+        print(notice.content or "（正文为空：可能这条通知是图片/外链形式）")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -50,8 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == "scan":
-        print("scan：P1 爬虫 + P2 识别实现后可用")
-        return 0
+        return _run_scan(args)
 
     if args.command == "model":
         # 在函数内部 import：只有真的执行到这个子命令才加载配置模块
