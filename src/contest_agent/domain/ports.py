@@ -16,7 +16,7 @@ DeepSeek？GLM？）。端口就是把"需要什么能力"写成接口。
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Iterator, Protocol
+from typing import Protocol
 
 from .entities import Competition, Notice, UsageEntry
 
@@ -173,26 +173,6 @@ class PushPort(Protocol):
     @property
     def channel_name(self) -> str:
         """通道名（webhook / smtp / file），推送结果播报用。"""
-        ...
-
-
-class ChatStreamPort(Protocol):
-    """能力十：能流式地自由对话（逐段产出助手回复，M4 由 infrastructure/llm 实现）。
-
-    和 LlmPort（单次结构化调用）的区别：不要求 JSON 格式、不等全部
-    生成完再返回，而是一段段往外吐——前端才能做到"逐字打出来"。
-    """
-
-    def stream(self, system: str, messages: list[dict]) -> Iterator[str]:
-        """发一轮对话，逐段产出（yield）助手回复的文本增量。
-
-        messages 是 [{"role": "user"|"assistant", "content": str}, ...]。
-        实现负责：调用前的预算检查、结束时的用量记账。
-        """
-        ...
-
-    def with_meter(self, meter) -> "ChatStreamPort":
-        """返回绑定了指定计价器的新实例（每次会话一个计价器，费用记到该会话）。"""
         ...
 
 

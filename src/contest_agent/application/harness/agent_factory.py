@@ -45,6 +45,7 @@ from agentscope.tool import FunctionTool, Toolkit
 from ...domain.entities import Notice
 from ...domain.ports import CompetitionRepositoryPort, NoticeSourcePort, SearchPort
 from ...settings import ModelProfile
+from ..cost import BudgetExceededError
 
 # 发给模型的正文上限：通知全文可能很长，模型不需要逐字看完全文
 MAX_NOTICE_CHARS = 4000
@@ -504,3 +505,177 @@ def run_material_generation(
         return outcome, tools
 
     return asyncio.run(pipeline())
+
+
+# ---------- M4 差异化：聊天 agent（工具箱 + 事件流） ----------
+
+
+async def build_chat_tools(
+    source: NoticeSourcePort,
+    notice_repository,
+    competition_repository: CompetitionRepositoryPort,
+    search: SearchPort,
+    identify_usecase,
+    sentinel,
+    recorder=None,
+    gate=None,
+) -> MaterialTools:
+    """聊天 agent 的工具箱：让它"自己动手"而不是教用户敲命令。
+
+    六件工具对应聊天的典型意图：
+    - list_competitions / query_deadlines：读库（查卡片、查截止）
+    - get_notice_content：读某条通知的原文
+    - search_web：联网搜索
+    - scan_latest_notices：爬官网最新通知（零 LLM 成本）
+    - identify_latest_notices：识别最新通知是否比赛（花 LLM，说明里写明）
+    recorder/gate 与其他工具箱一致：记录壳 + 权限门。
+    """
+
+    tools = MaterialTools(toolkit=Toolkit())
+
+    def list_competitions() -> str:
+        """列出数据库里全部比赛卡片，含名称、类型、截止日期和通知链接。"""
+        tools.trace.append("list_competitions()")
+        cards = competition_repository.list_all()
+        if not cards:
+            return "库里还没有比赛卡片。可以让我 scan_latest_notices 去官网扫一扫。"
+        lines = []
+        for index, card in enumerate(cards, start=1):
+            deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "未写"
+            lines.append(
+                f"{index}. {card.name}（{card.type}，截止 {deadline}）  通知：{card.notice_url}"
+            )
+        return "\n".join(lines)
+
+    def get_notice_content(notice_url: str) -> str:
+        """读取一条比赛通知的正文原文。notice_url 填通知详情页的完整网址。"""
+        tools.trace.append(f"get_notice_content({notice_url})")
+        notice = source.fetch_detail(Notice(source_url=notice_url, title=""))
+        if not notice.content:
+            return "这条通知没有抓到正文（可能是图片/外链形式）。"
+        return notice.content[:MAX_NOTICE_CHARS]
+
+    def search_web(query: str, max_results: int = 5) -> str:
+        """联网搜索资料。query 填搜索词，返回带网址的结果列表。"""
+        tools.trace.append(f"search_web({query!r})")
+        results = search.search(query, top_k=max_results)
+        if not results:
+            return "搜索暂时没有返回结果（可能网络波动），请换个搜索词重试。"
+        lines = []
+        for index, item in enumerate(results, start=1):
+            lines.append(f"{index}. {item['title']}\n   网址：{item['url']}\n   摘要：{item['snippet']}")
+        return "\n".join(lines)
+
+    def query_deadlines() -> str:
+        """查询临近截止的比赛（未来 30 天，按紧迫度排序）。"""
+        tools.trace.append("query_deadlines()")
+        alerts = sentinel.upcoming(within_days=30)
+        if not alerts:
+            return "未来 30 天没有临近截止的比赛。"
+        lines = []
+        for alert in alerts:
+            deadline_str = alert.card.deadline.strftime("%Y-%m-%d")
+            lines.append(f"- {alert.label}｜{alert.card.name}（截止 {deadline_str}）")
+        return "\n".join(lines)
+
+    def scan_latest_notices(limit: int = 8) -> str:
+        """爬一遍学院官网，拉取最新通知列表（只爬取不识别，零 LLM 成本）。
+        limit 填要看的条数。想判断哪些是比赛，接着调用 identify_latest_notices。"""
+        tools.trace.append(f"scan_latest_notices({limit})")
+        notices = source.list_notices(limit=limit)
+        if not notices:
+            return "官网没有抓到通知（列表页为空或结构变了？）"
+        lines = []
+        for index, notice in enumerate(notices, start=1):
+            date_str = notice.published_at.strftime("%Y-%m-%d") if notice.published_at else "????-??-??"
+            lines.append(f"{index}. [{date_str}] {notice.title}\n   {notice.source_url}")
+        return "\n".join(lines)
+
+    def identify_latest_notices(limit: int = 3) -> str:
+        """识别最新通知里哪些是比赛（粗筛 + LLM 结构化调用，会产生费用）。
+        limit 填要识别的条数（默认 3，最多 10）。返回每条的判定与卡片。"""
+        tools.trace.append(f"identify_latest_notices({limit})")
+        outcomes = identify_usecase.execute(limit=max(1, min(limit, 10)))
+        comp = sum(1 for o in outcomes if o.is_competition)
+        lines = [f"共 {len(outcomes)} 条：比赛 {comp} 条。"]
+        for o in outcomes:
+            mark = "✅ 比赛" if o.is_competition else "❌ 非比赛"
+            lines.append(f"- {mark}｜{o.notice.title}")
+            if o.competition is not None:
+                deadline = o.competition.deadline.strftime("%Y-%m-%d") if o.competition.deadline else "见通知"
+                lines.append(f"  {o.competition.name}（{o.competition.type}，截止 {deadline}）")
+        if identify_usecase.budget_error:
+            lines.append(f"⚠️ {identify_usecase.budget_error}")
+        return "\n".join(lines)
+
+    functions = {
+        "list_competitions": list_competitions,
+        "get_notice_content": get_notice_content,
+        "search_web": search_web,
+        "query_deadlines": query_deadlines,
+        "scan_latest_notices": scan_latest_notices,
+        "identify_latest_notices": identify_latest_notices,
+    }
+    for func in functions.values():
+        await _add_tool(tools.toolkit, func, recorder, gate)
+    tools.functions = functions
+    return tools
+
+
+async def run_chat_agent_stream(
+    profile: ModelProfile,
+    meter,
+    system_prompt: str,
+    history: list[dict],
+    user_text: str,
+    tools: MaterialTools,
+    max_iters: int = 12,
+    model: ChatModelBase | None = None,
+):
+    """跑一次聊天 agent 循环，把框架事件流翻译成聊天帧（异步生成器）。
+
+    帧协议（与 /api/chat 的 SSE 帧一致）：
+        {"type": "token", "text": …}   逐字增量
+        {"type": "tool", "name": …}    模型发起了一次工具调用
+        {"type": "done", "reply": …}   完成，带完整回复文本
+    框架会把模型/工具的异常捕获进最终 Msg.error，这里转成 done.error。
+    model 可注入（测试塞假模型离线跑）；默认按档案现建并包计价代理。
+    """
+    from agentscope.event import TextBlockDeltaEvent, ToolCallStartEvent
+
+    inner = model or build_chat_model(profile, meter)
+    agent = Agent(
+        name="chat_agent",
+        system_prompt=system_prompt,
+        model=MeteredChatModel(inner, meter),
+        toolkit=tools.toolkit,
+        react_config=ReActConfig(max_iters=max_iters),
+    )
+    # 多轮上下文：把最近几轮拼成 user/assistant 交替的消息列表 + 当前这条
+    inputs = [
+        Msg(name=m["role"], role=m["role"],
+            content=[TextBlock(type="text", text=m["content"])])
+        for m in history
+    ]
+    inputs.append(Msg(name="user", role="user",
+                      content=[TextBlock(type="text", text=user_text)]))
+
+    collected: list[str] = []
+    try:
+        async for event in agent.reply_stream(inputs):
+            if isinstance(event, TextBlockDeltaEvent):
+                collected.append(event.delta)
+                yield {"type": "token", "text": event.delta}
+            elif isinstance(event, ToolCallStartEvent):
+                yield {"type": "tool", "name": event.tool_call_name}
+            elif isinstance(event, Msg):
+                if getattr(event, "error", None) is not None:
+                    yield {"type": "done", "reply": "".join(collected),
+                           "error": str(event.error)}
+                    return
+    except BudgetExceededError as error:
+        # 计价代理在模型调用前熔断：预算信号转成 done.error 给前端
+        yield {"type": "done", "reply": "".join(collected), "error": str(error)}
+        return
+
+    yield {"type": "done", "reply": "".join(collected)}

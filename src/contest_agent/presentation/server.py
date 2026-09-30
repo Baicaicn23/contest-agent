@@ -444,10 +444,10 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
         def frame(payload: dict) -> str:
             return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-        def generate():
+        async def generate():
             yield frame({"type": "session", "session_id": session_id})
             try:
-                for chunk in chat_service.stream_reply(session_id, req.message):
+                async for chunk in chat_service.stream_reply(session_id, req.message):
                     yield frame(chunk)
             except Exception as error:  # 兜底：流中断也要给前端一个明确结束帧
                 yield frame({"type": "error", "error": str(error)})

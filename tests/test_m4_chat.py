@@ -1,18 +1,24 @@
-"""M4 后端（二）验收测试：自由对话 ChatService 与 /api/chat SSE 端点。
+"""M4 差异化改造验收测试：聊天区背后的真 agent。
 
-全程用假流式客户端（逐段吐固定文本），不碰网络不花钱。
+- ChatService 编排层：假 agent_runner（逐帧产出）测存档/历史窗口/错误帧；
+- 真工具循环：FakeChatModel（M1 的手法）+ 真 Toolkit——模型第一轮调工具、
+  第二轮收尾，验证工具帧/逐字帧/最终回复的完整链路；
+- SSE 端点用假服务测翻译层。
 """
 
+import asyncio
 import json
 from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
 
-import pytest
 from fastapi.testclient import TestClient
 
 from contest_agent.application.cost import BudgetExceededError, CostMeter
 from contest_agent.application.usecases.chat_service import ChatService
-from contest_agent.infrastructure.llm.openai_stream import OpenAiStreamChat
+from contest_agent.domain.entities import UsageEntry
 from contest_agent.infrastructure.persistence.repository import (
+    SqliteCompetitionRepository,
     SqliteSessionRepository,
     SqliteUsageRepository,
 )
@@ -23,173 +29,244 @@ from contest_agent.settings import ModelProfile, load_settings
 # ---------- 假对象 ----------
 
 
-class FakeStreamChat:
-    """假流式客户端：分三段吐"你好呀"；记录收到的 system 和 messages。"""
-
-    def __init__(self, boom: bool = False) -> None:
-        self.boom = boom
-        self.system = ""
-        self.messages: list[dict] = []
-
-    def with_meter(self, meter) -> "FakeStreamChat":
-        # 与真实现不同：这里返回自身并记住计价器，方便测试断言
-        # （真 OpenAiStreamChat 返回共享底层客户端的浅拷贝）
-        self.meter = meter
-        return self
-
-    def stream(self, system: str, messages: list[dict]):
-        if self.boom:
-            raise BudgetExceededError("预算熔断：已达上限")
-        self.system = system
-        self.messages = list(messages)
-        for piece in ["你", "好", "呀"]:
-            yield piece
+class FakeArchive(SqliteSessionRepository):
+    """内存存档（继承真实现，省得手写 CRUD）。"""
 
 
-class FakeMeterFactory:
-    """假计价器工厂：记录每次造计价器用的会话号。"""
+def fake_agent_runner(frames_by_call=None, tool_frame=None):
+    """造一个假 agent_runner：按调用次序产出预设帧序列，并记录入参。
 
-    def __init__(self) -> None:
-        self.session_ids: list[int] = []
+    frames_by_call[i] = 第 i 次调用产出的帧列表；超出则复用最后一组。
+    """
+    calls: list[dict] = []
+    state = {"n": 0}
 
-    def __call__(self, session_id: int) -> CostMeter:
-        self.session_ids.append(session_id)
-        profile = ModelProfile(name="t", base_url="https://x",
-                               api_key_env="K", model="t-chat")
-        return CostMeter(profile=profile, task_type="chat", budget_yuan=None)
+    def runner(session_id, system_prompt, history, user_text):
+        calls.append({
+            "session_id": session_id,
+            "system_prompt": system_prompt,
+            "history": list(history),
+            "user_text": user_text,
+        })
+        idx = min(state["n"], (len(frames_by_call) - 1) if frames_by_call else 0)
+        state["n"] += 1
+
+        async def gen():
+            for frame in frames_by_call[idx]:
+                yield frame
+
+        return gen()
+
+    runner.calls = calls
+    return runner
 
 
-# ---------- ChatService ----------
+# ---------- ChatService 编排层 ----------
 
 
 def test_chat_service_round_writes_events_and_streams() -> None:
-    archive = SqliteSessionRepository("sqlite:///:memory:")
-    service = ChatService(FakeStreamChat(), archive, meter_factory=FakeMeterFactory(),
-                          model_name="t-chat")
+    archive = FakeArchive("sqlite:///:memory:")
+    runner = fake_agent_runner([
+        [{"type": "tool", "name": "list_competitions"},
+         {"type": "token", "text": "库里有"},
+         {"type": "token", "text": "3 场比赛"},
+         {"type": "done", "reply": "库里有3场比赛"}],
+    ])
+    service = ChatService(archive, agent_runner=runner, model_name="t-chat")
 
     session_id = service.open_session()
-    chunks = list(service.stream_reply(session_id, "你好"))
+    chunks = asyncio.run(_collect(service.stream_reply(session_id, "库里有几场比赛")))
 
-    assert [c["type"] for c in chunks] == ["token", "token", "token", "done"]
-    assert chunks[-1]["reply"] == "你好呀"
+    assert [c["type"] for c in chunks] == ["tool", "token", "token", "done"]
+    assert chunks[-1]["reply"] == "库里有3场比赛"
 
-    # 轨迹：user_input 和 result 都进了会话存档
+    # 轨迹：user_input / tool_call / result 全留档（回放可见 agent 干了什么）
     _, events = archive.get_session(session_id)
     kinds = [e.kind for e in events]
-    assert kinds == ["user_input", "result"]
-    assert events[1].payload["final_text"] == "你好呀"
+    assert kinds == ["user_input", "tool_call", "result"]
+    assert events[1].payload["tool"] == "list_competitions"
+    assert events[2].payload["final_text"] == "库里有3场比赛"
 
 
-def test_chat_service_multi_round_history_window() -> None:
-    """多轮对话：上下文带最近几轮（超出窗口的旧轮被裁掉）。"""
-    archive = SqliteSessionRepository("sqlite:///:memory:")
-    stream = FakeStreamChat()
-    service = ChatService(stream, archive, meter_factory=FakeMeterFactory())
-
-    session_id = service.open_session()
-    for i in range(8):  # 聊 8 轮，窗口只有 6 轮
-        list(service.stream_reply(session_id, f"消息{i}"))
-
-    list(service.stream_reply(session_id, "第 9 问"))
-    # 最后一轮发给模型的 messages：窗口 12 条（最近 6 轮，从第 16 条往前切，
-    # 开头正好落在第 2 轮的助手回复上）+ 当前 1 条 = 13 条
-    assert len(stream.messages) == 13
-    assert stream.messages[0]["content"] == "你好呀"    # a2：窗口切在轮中间的助手消息
-    assert "消息3" in [m["content"] for m in stream.messages]
-    assert "消息0" not in [m["content"] for m in stream.messages]  # 最老的被裁掉
-    assert stream.messages[-1]["content"] == "第 9 问"
-    # 系统提示词单独走 stream.system，openai messages 里只有 user/assistant
-    assert all(m["role"] in ("user", "assistant") for m in stream.messages)
-    assert "比赛情报助手" in stream.system
+async def _collect(agen):
+    return [chunk async for chunk in agen]
 
 
-def test_chat_service_budget_break_yields_error_event() -> None:
-    archive = SqliteSessionRepository("sqlite:///:memory:")
-    service = ChatService(FakeStreamChat(boom=True), archive,
-                          meter_factory=FakeMeterFactory())
+def test_chat_service_history_window_and_prompt() -> None:
+    """多轮上下文窗口 + 系统提示词注入实时数据。"""
+    archive = FakeArchive("sqlite:///:memory:")
+    usage = SqliteUsageRepository("sqlite:///:memory:")
+    usage.record(UsageEntry("chat", "deepseek", "deepseek-chat", 100, 10, 0.00028,
+                            created_at=datetime.now()))
+
+    runner = fake_agent_runner([[{"type": "done", "reply": "ok"}],
+                                [{"type": "done", "reply": "ok"}]])
+    service = ChatService(archive, usage_repository=usage,
+                          agent_runner=runner, model_name="t-chat")
+    service.competition_repository = None
 
     session_id = service.open_session()
-    chunks = list(service.stream_reply(session_id, "你好"))
+    for i in range(8):
+        asyncio.run(_collect(service.stream_reply(session_id, f"消息{i}")))
+
+    asyncio.run(_collect(service.stream_reply(session_id, "第 9 问")))
+
+    last = runner.calls[-1]
+    assert len(last["history"]) == 12               # 6 轮 × 2 条
+    assert "t-chat" in last["system_prompt"]
+    assert "0.0003" in last["system_prompt"]        # 今日花费注入（保留 4 位）
+
+
+def test_chat_service_error_frame_recorded() -> None:
+    archive = FakeArchive("sqlite:///:memory:")
+    runner = fake_agent_runner([
+        [{"type": "done", "reply": "", "error": "预算熔断：已达上限"}],
+    ])
+    service = ChatService(archive, agent_runner=runner)
+
+    session_id = service.open_session()
+    chunks = asyncio.run(_collect(service.stream_reply(session_id, "hi")))
 
     assert chunks[-1]["type"] == "error"
-    assert "预算熔断" in chunks[-1]["error"]
-    # 错误也留档（回放时看得到为什么没回话）
     _, events = archive.get_session(session_id)
     assert events[-1].kind == "error"
 
 
-def test_chat_service_system_prompt_injects_live_data() -> None:
-    usage = SqliteUsageRepository("sqlite:///:memory:")
-    from contest_agent.domain.entities import UsageEntry
-
-    usage.record(UsageEntry("chat", "deepseek", "deepseek-chat", 100, 10, 0.00028,
-                            created_at=datetime.now()))
-    archive = SqliteSessionRepository("sqlite:///:memory:")
-    service = ChatService(FakeStreamChat(), archive, usage_repository=usage,
-                          meter_factory=FakeMeterFactory(), model_name="t-chat")
-
-    prompt = service.system_prompt()
-    assert "0.0003" in prompt or "0.00028" in prompt   # 今日花费注入
-    assert "t-chat" in prompt
+# ---------- 真工具循环（FakeChatModel + 真 Toolkit） ----------
 
 
-# ---------- OpenAiStreamChat（假 openai 客户端测流式解析与记账） ----------
+class FakeChatModel:
+    """鸭子类型假模型：第一轮调 list_competitions，第二轮收尾。
+
+    context_size 故意给大值（不经压缩）；经 MeteredChatModel 包裹后
+    连同计价器一起走真的 agent 循环。
+    """
+
+    context_size = 100_000
+    stream = False
+    model = "fake-model"
+    formatter = SimpleNamespace(supported_input_media_types=["image/*"])
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(self, messages, tools=None, **kwargs):
+        from agentscope.message import TextBlock, ToolCallBlock
+        from agentscope.model import ChatResponse, ChatUsage
+
+        self.calls += 1
+        if self.calls == 1:
+            return ChatResponse(
+                content=[ToolCallBlock(id="c1", name="list_competitions", input="{}")],
+                is_last=True,
+                usage=ChatUsage(input_tokens=50, output_tokens=5, time=0.01),
+            )
+        return ChatResponse(
+            content=[TextBlock(type="text", text="库里有卡片，我念给你听。")],
+            is_last=True,
+            usage=ChatUsage(input_tokens=80, output_tokens=10, time=0.01),
+        )
+
+    async def count_tokens(self, messages, tools=None) -> int:
+        return 50
+
+    async def generate_structured_output(self, *args, **kwargs):
+        raise AssertionError("聊天不应触发结构化输出")
 
 
-class _Chunk:
-    def __init__(self, content=None, usage=None):
-        self.choices = [] if content is None and usage is not None else [
-            type("C", (), {"delta": type("D", (), {"content": content})()})()
-        ]
-        self.usage = usage
+def test_real_agent_loop_emits_tool_and_token_frames(tmp_path: Path, monkeypatch) -> None:
+    """真 agent 循环端到端（离线）：假模型调真工具 → 工具帧 + 逐字帧 + 完成。"""
+    monkeypatch.setenv("K", "fake-key")             # 模型档案构造时的密钥检查
+    from contest_agent.application.harness.agent_factory import (
+        build_chat_tools,
+        run_chat_agent_stream,
+    )
 
+    class Repo:
+        def save_if_absent(self, competition):
+            return True
 
-class _FakeStreamClient:
-    """假 openai 客户端：create(stream=True) 返回预设分块，并记录调用参数。"""
+        def list_all(self):
+            return [type("C", (), {"name": "测试杯", "type": "exam",
+                                   "deadline": None, "notice_url": "u1"})()]
 
-    def __init__(self, chunks) -> None:
-        self._chunks = chunks
-        self.kwargs = {}
-        self.chat = type("Chat", (), {"completions": type(
-            "Completions", (), {"create": self._create})()})()
+    async def build():
+        return await build_chat_tools(
+            source=None, notice_repository=None,
+            competition_repository=Repo(), search=None,
+            identify_usecase=None, sentinel=None,
+        )
 
-    def _create(self, **kwargs):
-        self.kwargs = kwargs
-        return iter(self._chunks)
-
-
-def test_openai_stream_chat_yields_and_records_usage() -> None:
-    from types import SimpleNamespace
-
-    usage_chunk = SimpleNamespace(choices=[], usage=SimpleNamespace(
-        prompt_tokens=100, completion_tokens=20))
-    client = _FakeStreamClient([
-        _Chunk(content="你"), _Chunk(content="好"), usage_chunk,
-    ])
-    profile = ModelProfile(name="t", base_url="https://x", api_key_env="K",
-                           model="t-chat")
+    tools = asyncio.run(build())
+    profile = ModelProfile(name="t", base_url="https://x", api_key_env="K", model="t")
     meter = CostMeter(profile=profile, task_type="chat")
-    chat = OpenAiStreamChat(profile, client=client, meter=meter)
 
-    deltas = list(chat.stream("系统提示", [{"role": "user", "content": "hi"}]))
+    async def run():
+        return [f async for f in run_chat_agent_stream(
+            profile, meter, "你是测试助手", [], "库里有比赛吗", tools,
+            model=FakeChatModel())]
 
-    assert deltas == ["你", "好"]
-    assert meter.call_count == 1
-    assert meter.spent_yuan >= 0
-    assert client.kwargs["stream"] is True
-    assert client.kwargs["stream_options"] == {"include_usage": True}
-    assert client.kwargs["messages"][0] == {"role": "system", "content": "系统提示"}
+    frames = asyncio.run(run())
+
+    types = [f["type"] for f in frames]
+    assert "tool" in types and "token" in types
+    tool_frame = next(f for f in frames if f["type"] == "tool")
+    assert tool_frame["name"] == "list_competitions"  # 模型真的发起了查卡片调用
+    done = frames[-1]
+    assert done["type"] == "done"
+    assert "念给你听" in done["reply"]
+    assert meter.call_count == 2                    # 两轮模型调用都过了计价器
+
+
+def test_real_agent_loop_budget_break(tmp_path: Path, monkeypatch) -> None:
+    """预算熔断：模型调用前被计价器拦下，循环以 error 收场。"""
+    monkeypatch.setenv("K", "fake-key")
+    from contest_agent.application.harness.agent_factory import (
+        build_chat_tools,
+        run_chat_agent_stream,
+    )
+
+    async def build():
+        return await build_chat_tools(
+            source=None, notice_repository=None,
+            competition_repository=SqliteCompetitionRepository("sqlite:///:memory:"),
+            search=None, identify_usecase=None, sentinel=None,
+        )
+
+    tools = asyncio.run(build())
+    profile = ModelProfile(name="t", base_url="https://x", api_key_env="K", model="t")
+
+    class BrokenMeter:
+        def precheck(self):
+            raise BudgetExceededError("预算熔断：已达上限")
+
+        def record(self, **kwargs):
+            pass
+
+    async def run():
+        return [f async for f in run_chat_agent_stream(
+            profile, BrokenMeter(), "s", [], "hi", tools,
+            model=FakeChatModel())]
+
+    frames = asyncio.run(run())
+    assert frames[-1]["type"] == "done"
+    assert frames[-1].get("error") is not None      # 框架把异常记进最终 Msg.error
 
 
 # ---------- SSE 端点 ----------
 
 
 def test_chat_endpoint_sse_frames() -> None:
-    archive = SqliteSessionRepository("sqlite:///:memory:")
-    service = ChatService(FakeStreamChat(), archive, meter_factory=FakeMeterFactory())
+    archive = FakeArchive("sqlite:///:memory:")
+    runner = fake_agent_runner([
+        [{"type": "tool", "name": "query_deadlines"},
+         {"type": "token", "text": "还剩 22 天"},
+         {"type": "done", "reply": "还剩 22 天"}],
+    ] + [[{"type": "done", "reply": "ok"}]] * 5)
+    service = ChatService(archive, agent_runner=runner)
     client = TestClient(create_app(load_settings(), Usecases(chat=service)))
 
-    resp = client.post("/api/chat", json={"message": "你好"})
+    resp = client.post("/api/chat", json={"message": "最近有什么截止"})
 
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/event-stream")
@@ -198,18 +275,13 @@ def test_chat_endpoint_sse_frames() -> None:
     assert frames[0]["type"] == "session"
     session_id = frames[0]["session_id"]
     types = [f["type"] for f in frames[1:]]
-    assert types == ["token", "token", "token", "done"]
-    assert frames[-1]["reply"] == "你好呀"
+    assert types == ["tool", "token", "done"]
+    assert frames[-1]["reply"] == "还剩 22 天"
 
-    # 第二轮带 session_id：同一会话继续（事件追加而非新开）
-    resp2 = client.post("/api/chat", json={"message": "再来", "session_id": session_id})
-    frames2 = [json.loads(l.removeprefix("data: "))
-               for l in resp2.text.splitlines() if l.startswith("data: ")]
-    assert frames2[0]["session_id"] == session_id
-
-    # 新会话按钮 = close 旧会话
-    resp3 = client.post("/api/chat/close", json={"session_id": session_id})
-    assert resp3.status_code == 200
+    # 续聊带 session_id：runner 收到同一个会话号
+    resp2 = client.post("/api/chat", json={"message": "再说", "session_id": session_id})
+    assert resp2.status_code == 200
+    assert runner.calls[-1]["session_id"] == session_id
 
 
 def test_chat_endpoint_503_without_service() -> None:

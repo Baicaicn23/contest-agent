@@ -238,30 +238,64 @@ def build_usage_report_usecase() -> UsageReport:
 
 
 def build_chat_service() -> ChatService:
-    """组装自由对话服务（M4 前端聊天区）。
+    """组装自由对话服务（M4 差异化改造：聊天区背后是真 agent）。
 
-    stream_chat 出厂时不带计价器；meter_factory 在每轮对话开始时按
-    会话号现造计价器——同一聊天会话的所有轮次记在同一个 session_id 名下。
+    agent_runner 是一个闭包：每次对话按会话号现造一套"会话级装备"——
+    计价器（费用记到该会话）、识别用例（工具里调，同账）、哨兵（只读）——
+    再交给 harness 胶水 run_chat_agent_stream 跑 AgentScope 工具循环。
     密钥缺失在这里立刻报错（调用方据此降级 503）。
     """
-    from .infrastructure.llm.openai_stream import OpenAiStreamChat
+    from .application.harness.agent_factory import run_chat_agent_stream
+    from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 
     settings = load_settings_or_raise()
-    profile = settings.profile_for_task("chat")
-    stream_chat = OpenAiStreamChat(profile)
+    chat_profile = settings.profile_for_task("chat")
+    identify_profile = settings.profile_for_task("identify")
 
-    def meter_factory(session_id: int) -> CostMeter:
-        return build_cost_meter(
-            settings, profile, "chat", note="自由对话", session_id=session_id
+    def agent_runner(session_id: int, system_prompt: str,
+                     history: list[dict], user_text: str):
+        # 会话级装备（闭包内现造，全部记账到同一个 session_id）
+        meter = build_cost_meter(
+            settings, chat_profile, "chat", note="自由对话", session_id=session_id
+        )
+        identify_meter = build_cost_meter(
+            settings, identify_profile, "identify", session_id=session_id
+        )
+        memory = build_memory_repository()
+        identify_usecase = IdentifyCompetitions(
+            build_notice_source(),
+            OpenAiCompatLlm(identify_profile, meter=identify_meter),
+            build_competition_repository(),
+            memory=memory,
+        )
+        sentinel = DeadlineSentinel(
+            competition_repository=build_competition_repository(),
+            memory=memory,
+            pushers=[],
+        )
+        tools_ready = build_chat_tools(
+            source=build_notice_source(),
+            notice_repository=build_notice_repository(),
+            competition_repository=build_competition_repository(),
+            search=build_search(),
+            identify_usecase=identify_usecase,
+            sentinel=sentinel,
+        )
+        return run_chat_agent_stream(
+            profile=chat_profile,
+            meter=meter,
+            system_prompt=system_prompt,
+            history=history,
+            user_text=user_text,
+            tools=tools_ready,
         )
 
     return ChatService(
-        stream_chat=stream_chat,
         archive=build_session_repository(),
         competition_repository=build_competition_repository(),
         usage_repository=build_usage_repository(),
-        meter_factory=meter_factory,
-        model_name=profile.model,
+        agent_runner=agent_runner,
+        model_name=chat_profile.model,
     )
 
 

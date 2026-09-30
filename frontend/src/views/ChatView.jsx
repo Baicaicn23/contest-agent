@@ -75,6 +75,16 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
               copy[copy.length - 1].content += ev.text
               return copy
             })
+          } else if (ev.type === 'tool') {
+            // agent 发起工具调用：插到流式回复前面（消息顺序 = 实际发生顺序）
+            setMessages((m) => {
+              const copy = [...m]
+              copy.splice(copy.length - 1, 0, {
+                role: 'assistant', tool: true, toolName: ev.name,
+                content: '正在调用工具…',
+              })
+              return copy
+            })
           } else if (ev.type === 'done') {
             setMessages((m) => {
               const copy = [...m]
