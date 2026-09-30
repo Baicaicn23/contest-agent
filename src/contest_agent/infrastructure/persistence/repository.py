@@ -226,7 +226,7 @@ class SqliteUsageRepository:
 
     def list_entries(
         self, task_type: str | None = None, on_date: date | None = None,
-        session_id: int | None = None,
+        session_id: int | None = None, since: datetime | None = None,
     ) -> list[UsageEntry]:
         """按条件查流水，按时间正序返回（对账习惯：从早到晚）。
 
@@ -243,6 +243,8 @@ class SqliteUsageRepository:
                                 UsageRecordModel.created_at < day_end)
         if session_id is not None:
             query = query.where(UsageRecordModel.session_id == session_id)
+        if since is not None:
+            query = query.where(UsageRecordModel.created_at >= since)
         with self._session_factory() as session:
             rows = session.scalars(query).all()
             return [

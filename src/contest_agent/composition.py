@@ -31,6 +31,7 @@ from .application.usecases.memory_report import MemoryReport
 from .application.usecases.plan_study_path import PlanStudyPath
 from .application.usecases.scan_site import ScanSite
 from .application.usecases.session_report import SessionReport
+from .application.usecases.usage_report import UsageReport
 from .application.usecases.watch_site import WatchSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
@@ -67,6 +68,7 @@ __all__ = [
     "build_search",
     "build_session_report_usecase",
     "build_task_recorder",
+    "build_usage_report_usecase",
     "build_usage_repository",
     "build_usecases",
     "build_watch_usecase",
@@ -226,6 +228,11 @@ def build_session_report_usecase() -> SessionReport:
     return SessionReport(build_session_repository())
 
 
+def build_usage_report_usecase() -> UsageReport:
+    """组装 usage_report 用例：Overview 面板的六统计与热力图聚合（M4）。"""
+    return UsageReport(build_usage_repository(), build_session_repository())
+
+
 def build_memory_report_usecase() -> MemoryReport:
     """组装 memory_report 用例：查看/清理持久记忆（M2，不需要 LLM 密钥）。"""
     return MemoryReport(build_memory_repository())
@@ -379,6 +386,7 @@ def build_usecases() -> Usecases:
         report=GenerateReport(build_competition_repository()),
         cost_report=build_cost_report_usecase(),
         sessions=build_session_report_usecase(),
+        usage_report=build_usage_report_usecase(),
         generate_material=(
             GenerateMaterial(
                 profile=generate_profile,

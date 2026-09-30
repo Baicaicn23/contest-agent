@@ -15,7 +15,7 @@ DeepSeek？GLM？）。端口就是把"需要什么能力"写成接口。
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 from .entities import Competition, Notice, UsageEntry
@@ -96,9 +96,9 @@ class UsageRepositoryPort(Protocol):
 
     def list_entries(
         self, task_type: str | None = None, on_date: date | None = None,
-        session_id: int | None = None,
+        session_id: int | None = None, since: datetime | None = None,
     ) -> list[UsageEntry]:
-        """按条件查流水：不传条件 = 全部；可按任务、按天、按会话过滤。"""
+        """按条件查流水：不传条件 = 全部；可按任务、按天、按会话、按起始时间过滤。"""
         ...
 
 
