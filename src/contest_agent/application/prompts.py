@@ -60,3 +60,27 @@ DIGEST_SCHEMA = {
     "key_points": "str 数组，3-6 条要点",
     "useful_urls": "str 数组，材料里出现过的网址",
 }
+
+# —— M4 收尾：PPT 大纲 → 幻灯片结构（python-pptx 渲染用）——
+# 输入是 agent 落盘的大纲 Markdown，输出是结构化的幻灯片数组。
+# 铁律：只做"整理排版"，不增删改大纲的观点——PPT 的内容还是 agent 调研来的那份。
+SLIDES_SYSTEM_PROMPT = """\
+你是 PPT 结构化助手。输入是一份参赛答辩 PPT 的大纲（Markdown），请把它整理成
+结构化的幻灯片数组，交给程序渲染成 .pptx 文件。
+
+输出 JSON，字段：
+- title: 字符串。整套演示的主标题（从大纲提炼，如"XX竞赛·参赛答辩"）；
+- subtitle: 字符串。副标题（比赛全称/团队名等，大纲没有就给空字符串）；
+- slides: 数组。每项 {"title": "本页标题", "bullets": ["要点1", "要点2", ...]}。
+
+铁律：
+- 只整理、不改写：标题和要点都必须来自大纲原文，不许新增观点、不许删页；
+- 大纲里"每页一个标题、标题下 3-5 条要点"的结构原样保留；
+- 页数控制在 8-16 页。
+"""
+
+SLIDES_SCHEMA = {
+    "title": "str，演示主标题",
+    "subtitle": "str，副标题，可为空串",
+    "slides": "数组，每项 {title: str, bullets: str 数组}",
+}

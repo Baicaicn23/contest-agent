@@ -54,6 +54,8 @@ class MaterialResult:
     tool_trace: list[str] = field(default_factory=list)
     # 每步的工具调用轨迹（人话格式），给 CLI 播报用——
     # 材料是模型生成的，人必须能看到它查了什么、写了什么才敢用
+    pptx_file: str | None = None  # M4 收尾：导出的 .pptx 文件名（仅 ppt-outline 技能；None=未导出）
+    pptx_hint: str | None = None  # M4 收尾：pptx 导出失败时的降级提示（任务本身仍算成功）
 
 
 class GenerateMaterial:
@@ -71,6 +73,7 @@ class GenerateMaterial:
         context_config=None,
         recorder=None,
         gate=None,
+        exporter=None,
     ):
         self.profile = profile
         self.source = source
@@ -85,6 +88,9 @@ class GenerateMaterial:
         self.context_config = context_config
         self.recorder = recorder
         self.gate = gate
+        # M4 收尾：幻灯片导出器（infra 的 SlidesExporter，鸭子类型不标类型）。
+        # 只在 ppt-outline 技能成功后调用；None = 不导出
+        self.exporter = exporter
 
     def execute(
         self, skill_name: str, competition_name: str | None = None
@@ -144,7 +150,7 @@ class GenerateMaterial:
             recorder=self.recorder,
         )
 
-        return MaterialResult(
+        result = MaterialResult(
             final_text=outcome.final_text,
             success=outcome.error is None,
             skill_name=skill.name,
@@ -152,6 +158,22 @@ class GenerateMaterial:
             error=outcome.error,
             tool_trace=list(tools.trace),
         )
+
+        # M4 收尾：ppt-outline 成功后把大纲导出成 .pptx。
+        # 降级原则：大纲 .md 已经在手，pptx 失败只记提示、不毁任务
+        if self.exporter is not None and result.success and skill_name == "ppt-outline":
+            markdown_file = self.output_dir / "ppt-outline.md"
+            if markdown_file.exists():
+                try:
+                    info = self.exporter.export(
+                        markdown_file.read_text(encoding="utf-8"),
+                        self.output_dir / "ppt-outline.pptx",
+                    )
+                    result.pptx_file = info["path"].name
+                except Exception as export_error:
+                    result.pptx_hint = f"pptx 导出失败：{export_error}"
+
+        return result
 
     # ---------- 内部步骤 ----------
 

@@ -14,6 +14,7 @@ dependencies = [
     "openai>=1.40",
     "pyyaml>=6.0",
     "agentscope==2.0.8",
+    "python-pptx>=1.0.2",
 ]
 
 [dependency-groups]

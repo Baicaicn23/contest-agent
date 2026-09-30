@@ -288,6 +288,8 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
             "skill": result.skill_name,
             "tool_trace": result.tool_trace,
             "final_text": result.final_text,
+            "pptx_file": result.pptx_file,
+            "pptx_hint": result.pptx_hint,
         }
 
     @app.post("/study-path")

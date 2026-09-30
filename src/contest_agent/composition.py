@@ -316,6 +316,18 @@ def _build_context_config():
     return ContextConfig(trigger_ratio=settings.yaml_config.context.trigger_ratio)
 
 
+def build_slides_exporter(settings, profile, meter):
+    """组装幻灯片导出器（M4 收尾）：大纲 Markdown → .pptx。
+
+    转换用的 LLM 与 generate 主循环共用同一个计价器——导出这次
+    结构化调用的花费记在同一本账。
+    """
+    from .infrastructure.llm.openai_compat import OpenAiCompatLlm
+    from .infrastructure.slides.exporter import SlidesExporter
+
+    return SlidesExporter(OpenAiCompatLlm(profile, meter=meter))
+
+
 def build_generate_material_usecase(output_dir: Path | None = None, note: str = "") -> GenerateMaterial:
     """组装 generate_material 用例（P4，循环由 AgentScope 驱动）。
 
@@ -326,16 +338,18 @@ def build_generate_material_usecase(output_dir: Path | None = None, note: str = 
     settings = load_settings_or_raise()
     profile = settings.profile_for_task("generate")
     recorder = build_task_recorder("generate", note)
+    meter = build_cost_meter(settings, profile, "generate", note,
+                             session_id=recorder.session_id)
     return GenerateMaterial(
         profile=profile,
         source=build_notice_source(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
-        meter=build_cost_meter(settings, profile, "generate", note,
-                               session_id=recorder.session_id),
+        meter=meter,
         context_config=_build_context_config(),
         recorder=recorder,
         gate=build_permission_gate(),
+        exporter=build_slides_exporter(settings, profile, meter),
     )
 
 

@@ -300,6 +300,10 @@ def _run_generate(args: argparse.Namespace) -> int:
     status = "完成" if result.success else f"失败：{result.error}"
     print(f"任务：为「{result.competition_name}」生成「{result.skill_name}」材料")
     print(f"工具调用 {len(result.tool_trace)} 次 ｜ 状态：{status}")
+    if getattr(result, "pptx_file", None):
+        print(f"幻灯片已导出：output/{result.pptx_file}（可直接用 PowerPoint/WPS 打开）")
+    if getattr(result, "pptx_hint", None):
+        print(f"⚠️ {result.pptx_hint}（大纲 Markdown 不受影响）")
 
     # 工具轨迹播报：agent 干活的透明度底线
     if result.tool_trace:

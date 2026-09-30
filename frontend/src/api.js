@@ -116,10 +116,12 @@ export const COMMANDS = [
   },
   {
     cmd: '/生成',
-    desc: '为最近的比赛生成 PPT 大纲（30-90 秒）',
+    desc: '为最近的比赛生成 PPT 大纲 + .pptx 文件（30-90 秒）',
     run: async () => {
       const r = await api.generate('ppt-outline')
-      return `工具调用 ${r.tool_trace.length} 次，${r.success ? '完成 ✅' : '失败：' + r.error}\n\n${r.final_text}`
+      const pptx = r.pptx_file ? `\n\n📊 幻灯片已导出：output/${r.pptx_file}（可用 PowerPoint/WPS 打开）` : ''
+      const hint = r.pptx_hint ? `\n\n⚠️ ${r.pptx_hint}` : ''
+      return `工具调用 ${r.tool_trace.length} 次，${r.success ? '完成 ✅' : '失败：' + r.error}${pptx}${hint}\n\n${r.final_text}`
     },
   },
   {
