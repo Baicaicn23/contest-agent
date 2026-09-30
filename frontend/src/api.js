@@ -44,6 +44,7 @@ export const api = {
     jfetch('/study-path', { method: 'POST', body: JSON.stringify({ competition }) }),
   cost: (query = '') => jfetch(`/cost${query}`),
   report: () => jfetch('/report'),
+  deadlines: () => jfetch('/api/deadlines'),
 
   chatClose: (sessionId) =>
     jfetch('/api/chat/close', { method: 'POST', body: JSON.stringify({ session_id: sessionId }) }),
