@@ -22,6 +22,7 @@ from fastapi import FastAPI
 
 from .application.cost import CostMeter
 from .application.recorder import TaskRecorder
+from .application.usecases.chat_service import ChatService
 from .application.usecases.cost_report import CostReport
 from .application.usecases.evaluate_identification import EvaluateIdentification
 from .application.usecases.generate_material import GenerateMaterial
@@ -50,6 +51,7 @@ from .settings import PROJECT_ROOT, Settings, load_settings
 __all__ = [
     "app",
     "build_app",
+    "build_chat_service",
     "build_competition_repository",
     "build_cost_meter",
     "build_cost_report_usecase",
@@ -233,6 +235,34 @@ def build_usage_report_usecase() -> UsageReport:
     return UsageReport(build_usage_repository(), build_session_repository())
 
 
+def build_chat_service() -> ChatService:
+    """组装自由对话服务（M4 前端聊天区）。
+
+    stream_chat 出厂时不带计价器；meter_factory 在每轮对话开始时按
+    会话号现造计价器——同一聊天会话的所有轮次记在同一个 session_id 名下。
+    密钥缺失在这里立刻报错（调用方据此降级 503）。
+    """
+    from .infrastructure.llm.openai_stream import OpenAiStreamChat
+
+    settings = load_settings_or_raise()
+    profile = settings.profile_for_task("chat")
+    stream_chat = OpenAiStreamChat(profile)
+
+    def meter_factory(session_id: int) -> CostMeter:
+        return build_cost_meter(
+            settings, profile, "chat", note="自由对话", session_id=session_id
+        )
+
+    return ChatService(
+        stream_chat=stream_chat,
+        archive=build_session_repository(),
+        competition_repository=build_competition_repository(),
+        usage_repository=build_usage_repository(),
+        meter_factory=meter_factory,
+        model_name=profile.model,
+    )
+
+
 def build_memory_report_usecase() -> MemoryReport:
     """组装 memory_report 用例：查看/清理持久记忆（M2，不需要 LLM 密钥）。"""
     return MemoryReport(build_memory_repository())
@@ -365,6 +395,11 @@ def build_usecases() -> Usecases:
     generate_profile = routed_profile("generate")
     study_profile = routed_profile("study_path")
 
+    try:
+        chat_service = build_chat_service()
+    except RuntimeError:
+        chat_service = None  # 密钥缺失：聊天接口降级 503
+
     return Usecases(
         scan=ScanSite(build_notice_source(), build_notice_repository()),
         identify=(
@@ -387,6 +422,7 @@ def build_usecases() -> Usecases:
         cost_report=build_cost_report_usecase(),
         sessions=build_session_report_usecase(),
         usage_report=build_usage_report_usecase(),
+        chat=chat_service,
         generate_material=(
             GenerateMaterial(
                 profile=generate_profile,

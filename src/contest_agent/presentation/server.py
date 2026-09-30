@@ -20,14 +20,16 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ..application.usecases.cost_report import TASK_TYPES, CostReport
+from ..application.usecases.chat_service import ChatService
 from ..application.usecases.generate_material import GenerateMaterial
 from ..application.usecases.session_report import SessionReport
 from ..application.usecases.generate_report import GenerateReport
@@ -52,6 +54,7 @@ class Usecases:
     cost_report: CostReport | None = None
     sessions: SessionReport | None = None
     usage_report: UsageReport | None = None
+    chat: ChatService | None = None
     generate_material: GenerateMaterial | None = None
     study_path: PlanStudyPath | None = None
 
@@ -83,6 +86,15 @@ class SwitchModelRequest(BaseModel):
 
 class BudgetRequest(BaseModel):
     yuan: float | None = None  # null = 不限预算
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: int | None = None  # 不传 = 开新聊天会话
+
+
+class ChatCloseRequest(BaseModel):
+    session_id: int
 
 
 def _notice_to_dict(notice) -> dict:
@@ -409,6 +421,43 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
                 for o in outcomes
             ],
         }
+
+    @app.post("/api/chat")
+    def chat(req: ChatRequest):
+        """自由对话（SSE 逐 token 流式）。
+
+        前端用 fetch 读响应流：每帧 `data: {json}\\n\\n`，
+        type = session(开场带会话号) / token(文本增量) / done / error。
+        """
+        if usecases is None or usecases.chat is None:
+            raise HTTPException(
+                503, "对话需要 LLM 密钥：请在 .env 里配置 DEEPSEEK_API_KEY"
+            )
+        chat_service = usecases.chat
+        session_id = req.session_id
+        if session_id is None:
+            session_id = chat_service.open_session()
+
+        def frame(payload: dict) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        def generate():
+            yield frame({"type": "session", "session_id": session_id})
+            try:
+                for chunk in chat_service.stream_reply(session_id, req.message):
+                    yield frame(chunk)
+            except Exception as error:  # 兜底：流中断也要给前端一个明确结束帧
+                yield frame({"type": "error", "error": str(error)})
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.post("/api/chat/close")
+    def chat_close(req: ChatCloseRequest) -> dict:
+        """正常收尾一个聊天会话（前端点"新会话"时调用）。"""
+        if usecases is None or usecases.chat is None:
+            raise HTTPException(503, "对话未装配")
+        usecases.chat.close_session(req.session_id)
+        return {"closed": req.session_id}
 
     # ---------- 前端静态托管：构建产物存在才挂载，`sai serve` 单端口全搞定 ----------
 
