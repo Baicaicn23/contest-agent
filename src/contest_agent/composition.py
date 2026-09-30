@@ -32,7 +32,7 @@ from .infrastructure.persistence.repository import (
     SqliteNoticeRepository,
 )
 from .infrastructure.search.web_search import BingSearch
-from .presentation.server import create_app
+from .presentation.server import Usecases, create_app
 from .settings import PROJECT_ROOT, Settings, load_settings
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     "build_report_usecase",
     "build_scan_usecase",
     "build_search",
+    "build_usecases",
 ]
 
 
@@ -118,11 +119,9 @@ def build_report_usecase() -> GenerateReport:
 
 
 def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateMaterial:
-    """组装 generate_material 用例（P4，v1.5 起由 AgentScope 驱动循环）。
+    """组装 generate_material 用例（P4，循环由 AgentScope 驱动）。
 
-    传模型档案（而不是建好的客户端）：循环的组装在 harness/agent_factory
-    里完成，框架需要的是档案信息。output_dir 默认项目根的 output/，
-    测试时传临时目录。
+    output_dir 默认项目根的 output/；测试时传临时目录。
     """
     settings = load_settings_or_raise()
     return GenerateMaterial(
@@ -134,7 +133,7 @@ def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateM
 
 
 def build_search() -> BingSearch:
-    """组装联网搜索：Bing 中国版（P5，无需密钥）。"""
+    """组装联网搜索：Bing 中国版 + 360 回退（P5，无需密钥）。"""
     settings = load_settings_or_raise()
     return BingSearch(settings.yaml_config.search)
 
@@ -150,16 +149,59 @@ def build_plan_study_path_usecase(output_dir: Path | None = None) -> PlanStudyPa
     )
 
 
+def build_usecases() -> Usecases:
+    """组装 HTTP 层可用的全部用例（P6）。
+
+    降级策略：LLM 相关的用例（识别/生成/备考路径）依赖密钥，
+    密钥没配时它们保持 None（对应接口返回 503 + 配置指引），
+    其余接口（扫描/查询/报告）照常可用——同学没密钥也能跑通前半程。
+    """
+    settings = load_settings_or_raise()
+
+    try:
+        llm = build_llm()
+    except RuntimeError:
+        # 密钥缺失：不让整个服务起不来，只降级 LLM 相关接口
+        llm = None
+
+    return Usecases(
+        scan=ScanSite(build_notice_source(), build_notice_repository()),
+        identify=(
+            IdentifyCompetitions(build_notice_source(), llm, build_competition_repository())
+            if llm is not None
+            else None
+        ),
+        report=GenerateReport(build_competition_repository()),
+        generate_material=(
+            GenerateMaterial(
+                profile=settings.active_profile,
+                source=build_notice_source(),
+                competition_repository=build_competition_repository(),
+                output_dir=PROJECT_ROOT / "output",
+            )
+            if llm is not None
+            else None
+        ),
+        study_path=(
+            PlanStudyPath(
+                profile=settings.active_profile,
+                search=build_search(),
+                competition_repository=build_competition_repository(),
+                output_dir=PROJECT_ROOT / "output",
+            )
+            if llm is not None
+            else None
+        ),
+    )
+
+
 # ---------- HTTP 呈现层 ----------
 
 
 def build_app() -> FastAPI:
     """组装整个应用，返回配置齐全的 FastAPI 实例。"""
     settings = load_settings_or_raise()
-
-    # 用例按需组装（见上方各 build_* 函数）；
-    # P6 会把 /scan /competitions /generate 三个接口接到对应用例上
-    return create_app(settings)
+    return create_app(settings, build_usecases())
 
 
 # 模块级 app：cli.py 里 uvicorn.run("contest_agent.composition:app")
