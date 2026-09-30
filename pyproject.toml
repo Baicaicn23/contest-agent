@@ -13,6 +13,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "openai>=1.40",
     "pyyaml>=6.0",
+    "agentscope==2.0.8",
 ]
 
 [dependency-groups]

@@ -13,7 +13,6 @@ import time
 
 from openai import OpenAI
 
-from ...domain.entities import LlmReply, ToolCall
 from ...settings import ModelProfile
 
 MAX_RETRIES = 2        # 失败后最多重试几次（不含第一次）
@@ -95,44 +94,5 @@ class OpenAiCompatLlm:
                 time.sleep(RETRY_WAIT_SECONDS * attempt)
         raise ConnectionError(f"LLM 调用失败（已重试 {MAX_RETRIES} 次）：{last_error}")
 
-    def chat_with_tools(
-        self, messages: list[dict], tools: list[dict], temperature: float = 0.5
-    ) -> LlmReply:
-        """带工具表的对话式调用，把 openai 格式的响应翻译成 LlmReply。
-
-        翻译工作有两处讲究：
-        1. 模型返回的 tool_calls 里，arguments 是 JSON "字符串"，
-           这里负责解析成字典（解析失败不炸，包成 {"_raw": 原文} 交给上层，
-           让循环把错误信息回传给模型自行纠正——这是 ReAct 的常规操作）；
-        2. temperature 用 0.5 而不是 0：材料生成需要一点文采，
-           但也不能太放飞（循环决策仍要稳定）。
-        """
-        last_error: Exception | None = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                resp = self._client.chat.completions.create(
-                    model=self.profile.model,
-                    messages=messages,
-                    tools=tools or None,  # 空列表传 None，免得服务商挑理
-                    temperature=temperature,
-                )
-                message = resp.choices[0].message
-
-                tool_calls: list[ToolCall] = []
-                for raw_call in message.tool_calls or []:
-                    try:
-                        arguments = json.loads(raw_call.function.arguments or "{}")
-                    except json.JSONDecodeError:
-                        arguments = {"_raw": raw_call.function.arguments}
-                    tool_calls.append(
-                        ToolCall(
-                            id=raw_call.id,
-                            name=raw_call.function.name,
-                            arguments=arguments,
-                        )
-                    )
-                return LlmReply(content=message.content, tool_calls=tool_calls)
-            except Exception as error:
-                last_error = error
-                time.sleep(RETRY_WAIT_SECONDS * attempt)
-        raise ConnectionError(f"LLM 调用失败（已重试 {MAX_RETRIES} 次）：{last_error}")
+# 历史注记（v1.5）：本文件曾另有 chat_with_tools 方法（手写循环的工具对话
+# 接口），v1.5 采纳 AgentScope 后由框架的模型客户端接管（ADR-002），已移除。

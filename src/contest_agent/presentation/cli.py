@@ -195,7 +195,7 @@ def _run_report(args: argparse.Namespace) -> int:
 
 
 def _run_generate(args: argparse.Namespace) -> int:
-    """执行 sai generate：点火 ReAct 循环，边跑边播报工具轨迹，最后展示成果。
+    """执行 sai generate：AgentScope 循环驱动材料生成，播报工具轨迹与成果。
 
     轨迹播报是刻意保留的：材料是 LLM 生成的，人必须能看到
     "它查了什么、写了什么文件"才敢放心用——这是 agent 产品的透明度底线。
@@ -209,12 +209,13 @@ def _run_generate(args: argparse.Namespace) -> int:
             competition_name=args.competition,
         )
     except (ConnectionError, RuntimeError, FileNotFoundError) as error:
-        # RuntimeError：没卡片/没匹配比赛；FileNotFoundError：技能名打错
+        # RuntimeError：没卡片/没匹配比赛/没密钥；FileNotFoundError：技能名打错
         print(f"生成失败：{error}")
         return 1
 
+    status = "完成" if result.success else f"失败：{result.error}"
     print(f"任务：为「{result.competition_name}」生成「{result.skill_name}」材料")
-    print(f"循环步数：{result.steps} ｜ 状态：{'完成' if result.success else '未完成（步数耗尽）'}")
+    print(f"工具调用 {len(result.tool_trace)} 次 ｜ 状态：{status}")
 
     # 工具轨迹播报：agent 干活的透明度底线
     if result.tool_trace:
@@ -223,15 +224,12 @@ def _run_generate(args: argparse.Namespace) -> int:
             print(f"  - {line}")
 
     print("-" * 62)
-
-    if not result.success:
-        print(result.final_text)
-        return 1
-
     print(result.final_text)
     print("-" * 62)
-    print("材料已保存到 output/ 目录，请用编辑器打开检查内容质量。")
-    return 0
+    if result.success:
+        print("材料已保存到 output/ 目录，请用编辑器打开检查内容质量。")
+        return 0
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
