@@ -7,11 +7,11 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![AgentScope](https://img.shields.io/badge/AgentLoop-AgentScope-1264A3)](https://github.com/agentscope-ai/agentscope)
-[![Tests](https://img.shields.io/badge/tests-99%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/tests-117%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-参与贡献)
 
-*一个面向学生个人的比赛情报 Agent：盯着学院官网的通知公告，把混在里面的比赛挑出来、提取成结构化卡片，并自动生成 PPT 大纲、参赛计划书、备考学习路径——全程成本可查（`sai cost`）、轨迹可回放（`sai replay`）、质量有评测把关（`sai eval`）。*
+*一个面向学生个人的比赛情报 Agent：自动盯学院官网，把混在通知里的比赛挑出来、提取成结构化卡片，生成 PPT 大纲、参赛计划书、备考学习路径——发现新比赛主动推送（webhook/邮件/文件），全程成本可查（`sai cost`）、轨迹可回放（`sai replay`）、质量有评测把关（`sai eval`）。*
 
 **[功能特性](#-功能特性) · [快速开始](#-快速开始) · [架构设计](#-架构设计) · [路线图](#-路线图) · [Agent 层选型历程](#-agent-层的选型历程adr-001--adr-002)**
 
@@ -33,6 +33,9 @@
 | ♻️ | **持久记忆**：判过的通知直接命中记忆、跳过 LLM——**二次扫描 0 次调用**；正文变了自动重判 | ✅ v2/M2 |
 | 📼 | **会话存档**：每次任务的完整轨迹（每轮模型调用 / 工具 / 结果）可回放 `sai replay` | ✅ v2/M2 |
 | 📊 | **评测套件**：31 条真实历史通知考卷 + 基线回归比对，改提示词后防退化（真跑 100% 准确率） | ✅ v2/M2 |
+| ⏰ | **定时推送**：`sai watch` 盯一次官网、发现新比赛推 webhook/邮件/文件；cron 一行接入自动值班 | ✅ v2/M3 |
+| 🧞 | **研究分身**：study-path 内置子代理工具，搜索+精读+压缩一步完成，主循环只收千字摘要 | ✅ v2/M3 |
+| 🚪 | **权限门**：配置驱动——交互模式敏感工具先确认、无人值守按名单禁用（对照沙箱学派的取舍见文档） | ✅ v2/M3 |
 | 🔌 | **端口化架构**：爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档全部面向接口，换实现只改装配根 | ✅ 持续 |
 | 🧪 | **三层测试**：99 项离线（不联网不花钱）+ 4 项显式联网验收 | ✅ 持续 |
 
@@ -58,6 +61,7 @@ uv run sai cost --today          # 查 LLM 花费账单（按任务/模型/日�
 uv run sai memory                # 查看持久记忆（识别结论缓存，sai memory clear 清空）
 uv run sai sessions && uv run sai replay 1   # 任务会话列表 + 回放一次任务的完整轨迹
 uv run sai eval                  # 识别能力评测（31 条真实考卷 + 基线防退化比对）
+uv run sai watch                 # 盯一次官网，新比赛推 webhook/邮件/文件（cron 接管定时）
 uv run sai serve                 # 启动 API 服务，访问 /health
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
@@ -91,6 +95,7 @@ uv run pytest                    # 跑测试（联网验收另跑 uv run pytest 
 | `sai memory [list / clear]` | 查看 / 清空持久记忆（识别结论缓存：判过的通知不再花钱重判） |
 | `sai sessions` / `sai replay 编号` | 列出任务会话 / 回放一次任务的完整轨迹 |
 | `sai eval [--save] [--limit N]` | 识别能力评测：31 条真实考卷 + 基线防退化比对（改提示词必跑） |
+| `sai watch [--limit N] [--no-push] [--loop]` | 盯一次官网：识别 + 新比赛推送；cron/launchd 接管定时（`--loop` 可临时值守） |
 | `sai model` / `sai model use <档案>` | 查看 / 切换模型档案（写回 config.yaml），含按任务路由表与单价 |
 | `sai serve [--port 8000]` | 启动 FastAPI 服务 |
 
@@ -102,13 +107,13 @@ DDD 洋葱四层 + 装配根，依赖只能从外向内；所有外部能力（�
 
 ```mermaid
 flowchart TD
-    P[presentation 呈现层<br/>FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具<br/>CostMeter 计价 / TaskRecorder 会话记录 / 评测]
-    A --> D[domain 领域层<br/>实体 + 八个端口]
-    I[infrastructure 基础设施层<br/>爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档] -. 实现端口 .-> D
+    P[presentation 呈现层<br/>FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具 / 评测<br/>CostMeter 计价 / TaskRecorder 会话 / 权限门]
+    A --> D[domain 领域层<br/>实体 + 九个端口]
+    I[infrastructure 基础设施层<br/>爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档 / 推送] -. 实现端口 .-> D
     C[composition.py 装配根] -. 创建并注入实现 .-> P
 ```
 
-每个 LLM 任务自动带上三件横切装备（装配根注入，用例无感）：**CostMeter** 记账+预算熔断、**TaskRecorder** 轨迹存档、**ContextConfig** 上下文压缩（ADR-003）。
+每个 LLM 任务自动带上四件横切装备（装配根注入，用例无感）：**CostMeter** 记账+预算熔断、**TaskRecorder** 轨迹存档、**ContextConfig** 上下文压缩、**PermissionGate** 工具权限门（ADR-003 + M3）。
 
 识别比赛的三级流水线 + 记忆缓存（**10 条通知通常只花 2-3 次 LLM 调用，重复扫描 0 次**）：
 
@@ -128,14 +133,15 @@ flowchart LR
 
 ```
 src/contest_agent/
-├── domain/            # 实体 + 八个端口（洋葱芯，零外部依赖）
-├── application/       # 用例 + AgentScope 接驳层 + 粗筛 + 提示词
-│                      # + cost.py 计价器 + recorder.py 会话记录 + 评测套件
-├── infrastructure/    # 爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档（实现端口）
+├── domain/            # 实体 + 九个端口（洋葱芯，零外部依赖）
+├── application/       # 用例（识别/生成/路径/盯梢/评测）+ AgentScope 接驳层
+│                      # + cost.py 计价 + recorder.py 会话记录 + permission_gate.py 权限门
+├── infrastructure/    # 爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档 / 推送（实现端口）
 ├── presentation/      # FastAPI server + sai CLI 薄壳
 ├── composition.py     # 装配根：唯一知道具体实现的地方
 └── settings.py        # 环境优先配置（env > config.yaml > 默认值）
-config.yaml            # 站点源 + CSS 选择器 + 模型档案（含单价/路由/预算/压缩阈值）
+config.yaml            # 站点源 + 选择器 + 模型档案 + 推送通道 + 权限门名单
+skills/                # 技能文件（PPT 大纲 / 计划书 / 备考路径）
 tests/fixtures/        # 真实页面样本 + eval_identify.json 评测考卷（31 条真实通知）
 docs/adr/              # 架构决策记录（ADR-001/002/003）
 ```
@@ -153,8 +159,8 @@ docs/adr/              # 架构决策记录（ADR-001/002/003）
 - [x] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0
 - [x] **v2/M1** 成本台账（`sai cost`）+ 预算闸门 + 模型路由 + 上下文压缩（ADR-003）
 - [x] **v2/M2** 持久记忆（二次扫描 0 调用）+ 会话存档回放 + 评测套件（基线防退化）
-- [ ] **v2/M3** 子代理 / 权限门 / 定时推送（条件触发，到触发条件再做）
-- [ ] **v2/M4** 前端（SSE 流式）/ python-pptx 真实文件 / 多校源
+- [x] **v2/M3** 定时推送（cron + 三通道）+ 研究分身（子代理摘要）+ 权限门
+- [ ] **v2/M4** 前端（SSE 流式）/ python-pptx 真实文件 / 多校源 / 性能优化
 
 ## 🎓 这也是一个学习项目
 

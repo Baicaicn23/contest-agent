@@ -4,6 +4,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — v2/M3 定时推送 + 研究分身 + 权限门
+
+### 新增
+
+- **定时推送**：`sai watch` 盯一次官网（识别与 `sai identify` 完全同款，
+  幂等+记忆让反复跑几乎零成本），发现新比赛推送到所有已启用通道；
+  三通道实现 PushPort——webhook（POST JSON，钉钉/企微/Server酱通用）、
+  邮件（SMTP，密码走 `SMTP_PASSWORD`）、本地文件（Markdown 落盘，默认开启）；
+  定时交给 cron/launchd（README 附 crontab 一行），`--loop` 可临时值守；
+  单通道故障不拖累其他通道
+- **研究分身（子代理）**：study-path 新增 `research_digest` 工具——分身内部
+  搜索前 3 条、精读前 2 页、一次结构化调用压缩成"概述/要点/有用网址"摘要，
+  主循环只收千字摘要；网址铁律照抄材料（P5 引用校验同源）；分身与主循环
+  共用同一个计价器和会话记录（花费合并算账、轨迹同份存档）
+- **权限门**：config.yaml `permissions` 两个名单——`confirm_tools`
+  （交互模式执行前 y/N 确认）、`unattended_deny_tools`（无人值守一律拒绝，
+  理由回给模型）；拒绝理由进会话轨迹；对照 pi"沙箱学派"的取舍已记录
+  （工具自有且有界，权限门够用；引入 shell 类工具时再评估沙箱）
+
+### 变更
+
+- 识别用例补 `new_cards` 清单（推送只推本次新入库的卡片）
+- 工具注册链扩为"截断 → 权限门 → 会话记录"，权限门的拒绝也留档可回放
+- config.yaml 新增 `push` / `permissions` 配置段（默认零行为变化）
+
+### 测试
+
+- 离线 117 项（M3 新增 18）+ live 4 项全绿
+- 真实验收：本地 HTTP 收包器验证 webhook 推送闭环（JSON 全字段正确）、
+  file 通道同秒防覆盖落盘、digest 有界且网址全来自材料、
+  确认门/禁用门按名单生效
+
 ## [Unreleased] — v2/M2 记忆 + 会话存档 + 评测套件
 
 ### 新增
