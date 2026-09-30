@@ -1,0 +1,111 @@
+/* ============ 设计令牌（Design Tokens） ============
+ * 整个界面的颜色/圆角/字体都从这份"调色板"取——组件里不写死任何颜色。
+ * 亮暗两套主题 = 两组变量值，切换主题只改 <html data-theme>，
+ * 所有组件自动跟随（这就是 CSS 变量做主题的原理）。
+ * 取色来源：对照 Claude Desktop 截图逐块取样。
+ */
+
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* 背景：暖白主底 + 更暖一度的侧栏 + 白色浮起卡片 */
+  --bg: #faf9f5;
+  --bg-sidebar: #f2f0e9;
+  --bg-elev: #ffffff;
+  --bg-chip: #e9e7de;
+  --bg-chip-hover: #e0ded4;
+  --bg-inset: #edebe2;          /* 统计卡 / 热力图底 */
+
+  /* 文本 */
+  --text: #1f1e1d;
+  --text-dim: #7d7c75;
+  --text-faint: #a5a49c;
+
+  /* 边框 */
+  --border: #e5e3d8;
+  --border-soft: #eceade;
+
+  /* 品牌橙（Claude 陶土色） */
+  --accent: #d97757;
+  --accent-hover: #c4653f;
+  --accent-soft: #f6e8e1;
+
+  /* 行内代码 chip：浅粉底 + 深红字（截图里的 claude-fable-5 样式） */
+  --code-bg: #f3e0d8;
+  --code-text: #a1502e;
+
+  /* 用户气泡 */
+  --bubble-user: #eceade;
+
+  /* 热力图四级强度 */
+  --heat-0: #e5e3da;
+  --heat-1: #f0c8b4;
+  --heat-2: #e5987a;
+  --heat-3: #d97757;
+
+  /* 弹层阴影 */
+  --shadow-pop: 0 8px 32px rgba(31, 30, 29, 0.14), 0 2px 8px rgba(31, 30, 29, 0.08);
+
+  /* 代码 diff 预览（Settings 弹窗里的装饰块） */
+  --diff-bg: #ffffff;
+  --diff-line-add: #e8f2e4;
+  --diff-line-del: #fbeaea;
+  --diff-gutter: #f0eee8;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #262624;
+  --bg-sidebar: #1f1e1d;
+  --bg-elev: #2f2f2d;
+  --bg-chip: #383836;
+  --bg-chip-hover: #444441;
+  --bg-inset: #30302e;
+
+  --text: #f5f4ef;
+  --text-dim: #9c9b93;
+  --text-faint: #6f6e68;
+
+  --border: #3d3c39;
+  --border-soft: #353533;
+
+  --accent: #d97757;
+  --accent-hover: #e08a6d;
+  --accent-soft: #4a352c;
+
+  --code-bg: #46352d;
+  --code-text: #eda488;
+
+  --bubble-user: #383836;
+
+  --heat-0: #3a3a37;
+  --heat-1: #6b4634;
+  --heat-2: #a05f41;
+  --heat-3: #d97757;
+
+  --shadow-pop: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --diff-bg: #1f1e1d;
+  --diff-line-add: #263322;
+  --diff-line-del: #3c2424;
+  --diff-gutter: #2a2a28;
+}
+
+/* 字号档位（Settings 里的 Transcript text size 真生效） */
+:root { --fs-msg: 15px; }
+:root[data-fs='small'] { --fs-msg: 14px; }
+:root[data-fs='medium'] { --fs-msg: 15px; }
+:root[data-fs='large'] { --fs-msg: 17px; }
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  --font-serif: 'Georgia', 'Songti SC', 'SimSun', serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}
