@@ -56,3 +56,28 @@ class Competition:
     type: str = "unknown"  # 比赛类型：deliverable=交付物型 / exam=考试型 / unknown=没识别出来
     deadline: datetime | None = None  # 报名或提交截止时间
     evidence: str = ""   # 原文证据片段：LLM 说这是比赛，就得指出来原文哪句话支持的——防幻觉
+
+
+@dataclass
+class ToolCall:
+    """模型发起的一次工具调用请求（P4 agent loop 用）。
+
+    id：这次调用的"身份证号"——工具结果回传时要凭它对号入座；
+    arguments：调用参数（基础设施层已把 JSON 字符串解析成字典）。
+    """
+
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class LlmReply:
+    """模型的一次回复：要么是文字，要么是（若干个）工具调用，要么都有。
+
+    content 为空且 tool_calls 非空 = 模型在"动手"；
+    tool_calls 为空 = 模型在"说话"（通常意味着它认为任务完成了）。
+    """
+
+    content: str | None = None
+    tool_calls: list[ToolCall] = field(default_factory=list)

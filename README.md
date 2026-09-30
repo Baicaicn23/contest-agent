@@ -29,7 +29,7 @@
 | 💰 | **成本控制意识**：5 条通知通常只花 1 次 LLM 调用 | ✅ v0.1 |
 | 🔌 | **端口化架构**：爬虫 / LLM / 存储 / 搜索全部面向接口，换实现只改装配根 | ✅ v0.1 |
 | 🧪 | **三层测试**：离线样本测试 + 假对象编排测试 + 显式联网验收 | ✅ v0.1 |
-| 📝 | **材料生成**：按 Skill 生成 PPT 大纲 / 计划书 / 演讲稿（手写 ReAct harness） | 🚧 P4 |
+| 📝 | **材料生成**：按 Skill 生成 PPT 大纲 / 计划书 / 演讲稿（手写 ReAct harness） | ✅ v0.1 |
 | 📚 | **学习路径**：考试型比赛生成强制真实引用的备考路径 | 🚧 P5 |
 
 ## 🚀 快速开始
@@ -47,6 +47,8 @@ cp .env.example .env   # 填入 DEEPSEEK_API_KEY
 uv run sai scan                  # 扫描学院官网最新通知
 uv run sai identify              # 识别比赛：输出带原文证据的卡片
 uv run sai report                # 把库里的卡片渲染成 Markdown 情报报告
+uv run sai generate --skill ppt-outline   # 为最新比赛生成 PPT 大纲（ReAct 循环）
+uv run sai generate --skill proposal      # 生成参赛计划书
 uv run sai serve                 # 启动 API 服务，访问 /health
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
@@ -110,7 +112,7 @@ docs/adr/              # 架构决策记录
 - [x] **P1** 爬虫：真实站点接入、选择器配置化、限速容错
 - [x] **P2** 识别提取：粗筛 + 结构化调用 + 原文证据防幻觉
 - [x] **P3** 存储报告：SQLAlchemy 落库、幂等去重、Markdown 报告
-- [ ] **P4** 手写 harness：ReAct 循环 + 工具注册 + Skill 生成参赛材料
+- [x] **P4** 手写 harness：ReAct 循环 + 工具注册 + Skill 生成参赛材料
 - [ ] **P5** 学习路径：考试型比赛备考路径（强制真实引用校验）
 - [ ] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0
 - [ ] **v2** 上下文管理 / 记忆 / 成本台账 / 评测套件 / 多校源

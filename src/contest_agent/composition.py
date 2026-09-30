@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 
+from .application.usecases.generate_material import GenerateMaterial
 from .application.usecases.generate_report import GenerateReport
 from .application.usecases.identify_competitions import IdentifyCompetitions
 from .application.usecases.scan_site import ScanSite
@@ -28,12 +31,13 @@ from .infrastructure.persistence.repository import (
     SqliteNoticeRepository,
 )
 from .presentation.server import create_app
-from .settings import Settings, load_settings
+from .settings import PROJECT_ROOT, Settings, load_settings
 
 __all__ = [
     "app",
     "build_app",
     "build_competition_repository",
+    "build_generate_material_usecase",
     "build_identify_usecase",
     "build_llm",
     "build_notice_repository",
@@ -107,6 +111,20 @@ def build_identify_usecase() -> IdentifyCompetitions:
 def build_report_usecase() -> GenerateReport:
     """组装 generate_report 用例：从卡片仓储读数据渲染 Markdown 报告（P3）。"""
     return GenerateReport(build_competition_repository())
+
+
+def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateMaterial:
+    """组装 generate_material 用例：LLM + 爬虫 + 卡片仓储 + 输出目录（P4）。
+
+    output_dir 默认是项目根的 output/；测试时传临时目录，材料就不会
+    写进真实输出区。max_steps 沿用用例内默认值 8。
+    """
+    return GenerateMaterial(
+        llm=build_llm(),
+        source=build_notice_source(),
+        competition_repository=build_competition_repository(),
+        output_dir=output_dir or (PROJECT_ROOT / "output"),
+    )
 
 
 # ---------- HTTP 呈现层 ----------
