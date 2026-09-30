@@ -322,8 +322,15 @@ async def build_study_tools(
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
     recorder=None,
+    digest_llm=None,
 ) -> MaterialTools:
-    """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。"""
+    """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。
+
+    M3 起多一件 research_digest（研究分身）：它内部自己跑一遍
+    "搜索 -> 精读 -> 单次结构化调用汇总"，只把千字摘要交还给主循环——
+    主对话不再被几十页原文塞满。digest_llm 是分身专用的 LLM 客户端
+    （结构和主循环同款，计价器/会话记录是同一个，花费合并算账）。
+    """
 
     tools = MaterialTools(toolkit=Toolkit())
 
@@ -342,6 +349,45 @@ async def build_study_tools(
         """读取一个网页的正文内容，用于确认链接真实可用、内容相关后再引用。url 填完整网址。"""
         tools.trace.append(f"read_page({url})")
         return search.read_page(url)
+
+    def research_digest(topic: str) -> str:
+        """派"研究分身"调研一个主题：自动搜索 + 精读网页 + 汇总成带网址的调研摘要。
+        topic 填研究主题（如 '蓝桥杯 备考经验'）。想快速了解一个主题时优先用它，
+        比自己 search_web + read_page 逐页看省得多。"""
+        from ..prompts import DIGEST_SCHEMA, DIGEST_SYSTEM_PROMPT
+
+        tools.trace.append(f"research_digest({topic!r})")
+        if digest_llm is None:
+            return "研究分身未装配（缺少摘要模型），请改用 search_web + read_page 自己调研。"
+
+        # 分身第 1 步：搜索，取前 3 条线索
+        results = search.search(topic, top_k=3)
+        if not results:
+            return "搜索没有返回结果（可能网络波动），请换个搜索词重试。"
+
+        # 分身第 2 步：精读前 2 个页面（每页最多 2000 字），拼成材料包
+        materials = []
+        for item in results[:2]:
+            page = search.read_page(item["url"], max_chars=2000)
+            materials.append(f"【来源】{item['title']}（{item['url']}）\n{page}")
+
+        # 分身第 3 步：一次结构化调用，把材料压成摘要
+        # （这就是"子代理"：分身有自己的输入输出，主循环永远看不到原文，只看摘要）
+        digest = digest_llm.complete_structured(
+            system=DIGEST_SYSTEM_PROMPT,
+            user="\n\n".join(materials) + f"\n\n研究主题：{topic}",
+            schema=DIGEST_SCHEMA,
+        )
+
+        # 分身第 4 步：把结构化摘要渲染成文本交还主循环
+        lines = [f"【概述】{digest.get('summary', '')}"]
+        for point in digest.get("key_points", []):
+            lines.append(f"- {point}")
+        urls = digest.get("useful_urls", [])
+        if urls:
+            lines.append("【有用网址】")
+            lines.extend(f"  {u}" for u in urls)
+        return "\n".join(lines)
 
     save_material = _make_save_material(output_dir, tools.trace)
 
@@ -363,6 +409,7 @@ async def build_study_tools(
     functions = {
         "search_web": search_web,
         "read_page": read_page,
+        "research_digest": research_digest,
         "save_material": save_material,
         "list_competitions": list_competitions,
     }

@@ -292,19 +292,26 @@ def build_search() -> BingSearch:
 
 
 def build_plan_study_path_usecase(output_dir: Path | None = None, note: str = "") -> PlanStudyPath:
-    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价 + M2 会话）。"""
+    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价 + M2 会话 + M3 研究分身）。
+
+    digest_llm（研究分身的 LLM 客户端）与主循环共用同一个计价器和会话
+    记录器——分身调用的花费记在同一本账、同一份轨迹里，不会另立山头。
+    """
     settings = load_settings_or_raise()
     profile = settings.profile_for_task("study_path")
     recorder = build_task_recorder("study_path", note)
+    meter = build_cost_meter(settings, profile, "study_path", note,
+                             session_id=recorder.session_id)
+    digest_llm = OpenAiCompatLlm(profile, meter=meter, recorder=recorder)
     return PlanStudyPath(
         profile=profile,
         search=build_search(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
-        meter=build_cost_meter(settings, profile, "study_path", note,
-                               session_id=recorder.session_id),
+        meter=meter,
         context_config=_build_context_config(),
         recorder=recorder,
+        digest_llm=digest_llm,
     )
 
 
