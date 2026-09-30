@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="补抓第几条通知的详情正文（从 1 开始），如 --detail 1",
     )
 
+    # 子命令二：sai identify [--limit N]（P2：粗筛 + LLM 识别比赛）
+    identify = sub.add_parser(
+        "identify", help="扫描并识别比赛（关键词粗筛 + LLM 单次结构化调用）"
+    )
+    identify.add_argument("--limit", type=int, default=5, help="扫描最近多少条通知（默认 5）")
+
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
     model.add_argument("action", nargs="?", default="list", choices=["list", "use"])
@@ -86,6 +92,46 @@ def _run_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_identify(args: argparse.Namespace) -> int:
+    """执行 sai identify：扫描 -> 粗筛 -> LLM 识别，打印比赛卡片和拒绝理由。
+
+    这是 P2 的主命令。每条通知的输出都带"理由"和"原文证据"——
+    LLM 说它是比赛，就要拿出原文哪句话支持的证据，方便人工复核。
+    """
+    from ..composition import build_identify_usecase
+
+    try:
+        outcomes = build_identify_usecase().execute(limit=args.limit)
+    except (ConnectionError, RuntimeError) as error:
+        # RuntimeError 多为密钥没配；ConnectionError 是网络/重试耗尽
+        print(f"识别失败：{error}")
+        return 1
+
+    competition_count = sum(1 for o in outcomes if o.is_competition)
+    llm_count = sum(1 for o in outcomes if o.llm_called)
+    print(
+        f"共扫描 {len(outcomes)} 条通知，识别出比赛 {competition_count} 条"
+        f"（粗筛挡下 {len(outcomes) - llm_count} 条，实际调用 LLM {llm_count} 次）\n"
+    )
+
+    type_names = {"deliverable": "交付物型", "exam": "考试型"}
+    for number, outcome in enumerate(outcomes, start=1):
+        mark = "✅ 比赛  " if outcome.is_competition else "❌ 非比赛"
+        print(f"{number:>2}. {mark} | {outcome.notice.title}")
+        print(f"     {outcome.notice.source_url}")
+        print(f"     理由：{outcome.reason}")
+
+        if outcome.is_competition and outcome.competition is not None:
+            card = outcome.competition
+            type_name = type_names.get(card.type, card.type)
+            deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "通知内未写"
+            print(f"     卡片：{card.name} | {type_name} | 截止 {deadline}")
+            print(f"     证据：{card.evidence}")
+        print()
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -97,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "scan":
         return _run_scan(args)
 
+    if args.command == "identify":
+        return _run_identify(args)
+
     if args.command == "model":
         # 在函数内部 import：只有真的执行到这个子命令才加载配置模块
         from ..settings import load_settings
@@ -104,8 +153,15 @@ def main(argv: list[str] | None = None) -> int:
         settings = load_settings()
 
         if args.action == "use" and args.name:
-            # P2 接入 LLM 工厂时，这里会把用户的选择持久化回 config.yaml
-            print(f"模型切换写入 config.yaml 的功能在 P2 接入 LLM 工厂时实现（目标：{args.name}）")
+            # 真正的切换：校验档案存在 -> 写回 config.yaml -> 清配置缓存
+            from ..settings import set_active_model
+
+            try:
+                set_active_model(args.name)
+            except KeyError as error:
+                print(f"切换失败：{error}")
+                return 1
+            print(f"已切换模型档案：{args.name}（已写回 config.yaml）")
             return 0
 
         # 默认动作是 list：打印档案列表，行首带 * 的表示当前生效
