@@ -41,7 +41,7 @@ def fake_agent_runner(frames_by_call=None, tool_frame=None):
     calls: list[dict] = []
     state = {"n": 0}
 
-    def runner(session_id, system_prompt, history, user_text):
+    async def runner(session_id, system_prompt, history, user_text):
         calls.append({
             "session_id": session_id,
             "system_prompt": system_prompt,

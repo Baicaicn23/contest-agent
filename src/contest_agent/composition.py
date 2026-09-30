@@ -245,15 +245,18 @@ def build_chat_service() -> ChatService:
     再交给 harness 胶水 run_chat_agent_stream 跑 AgentScope 工具循环。
     密钥缺失在这里立刻报错（调用方据此降级 503）。
     """
-    from .application.harness.agent_factory import run_chat_agent_stream
+    from .application.harness.agent_factory import (
+        build_chat_tools,
+        run_chat_agent_stream,
+    )
     from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 
     settings = load_settings_or_raise()
     chat_profile = settings.profile_for_task("chat")
     identify_profile = settings.profile_for_task("identify")
 
-    def agent_runner(session_id: int, system_prompt: str,
-                     history: list[dict], user_text: str):
+    async def agent_runner(session_id: int, system_prompt: str,
+                           history: list[dict], user_text: str):
         # 会话级装备（闭包内现造，全部记账到同一个 session_id）
         meter = build_cost_meter(
             settings, chat_profile, "chat", note="自由对话", session_id=session_id
@@ -273,7 +276,7 @@ def build_chat_service() -> ChatService:
             memory=memory,
             pushers=[],
         )
-        tools_ready = build_chat_tools(
+        tools = await build_chat_tools(
             source=build_notice_source(),
             notice_repository=build_notice_repository(),
             competition_repository=build_competition_repository(),
@@ -287,7 +290,7 @@ def build_chat_service() -> ChatService:
             system_prompt=system_prompt,
             history=history,
             user_text=user_text,
-            tools=tools_ready,
+            tools=tools,
         )
 
     return ChatService(

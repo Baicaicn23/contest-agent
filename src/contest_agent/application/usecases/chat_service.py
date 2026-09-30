@@ -45,8 +45,9 @@ class ChatService:
         self.competition_repository = competition_repository
         self.usage_repository = usage_repository
         # agent_runner(session_id, system_prompt, history, user_text) ->
-        #   异步生成器，产出聊天帧（token/tool/done）。由装配根注入：
-        #   内部按会话号现造计价器与全套工具，模型循环在 harness 胶水里。
+        #   异步函数，await 后返回聊天帧异步生成器。由装配根注入：
+        #   内部按会话号现造计价器与全套工具（构建工具箱本身是异步的），
+        #   模型循环在 harness 胶水里。
         self.agent_runner = agent_runner
         self.model_name = model_name
 
@@ -127,9 +128,10 @@ class ChatService:
         history = self.history(session_id)
         collected: list[str] = []
         try:
-            async for chunk in self.agent_runner(
+            stream = await self.agent_runner(
                 session_id, self.system_prompt(), history, user_text
-            ):
+            )
+            async for chunk in stream:
                 if chunk.get("type") == "tool":
                     # 工具调用留档：回放时看得到 agent 干了什么
                     self._log(session_id, "tool_call",
