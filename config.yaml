@@ -21,6 +21,22 @@ routing:
 context:
   trigger_ratio: 0.8
 
+# —— M3 定时推送 ——
+# 三个通道互相独立：配了哪个就启用哪个，全不配 = 只在终端播报。
+# 配好后用 cron 定时跑：*/30 8-22 * * * cd /path/to/contest-agent && uv run sai watch
+push:
+  # webhook：钉钉/企业微信/Server酱等机器人的通用形态，POST JSON 到这个地址
+  webhook_url: null
+  webhook_timeout: 10
+  # file：本地文件通道，通知落成 Markdown（调试利器，也是推送存档）
+  file_dir: output/notifications
+  # smtp：邮件通道（密码走环境变量 SMTP_PASSWORD，绝不写进本文件）
+  # smtp:
+  #   host: smtp.qq.com
+  #   port: 465
+  #   user: your@qq.com
+  #   to_addrs: [your@qq.com]
+
 # 联网搜索（P5 学习路径用）：国内可直连、无需密钥；主引擎被风控时自动切回退引擎
 search:
   engine_url: https://cn.bing.com/search?q={query}&count=12   # 主引擎：Bing 中国版

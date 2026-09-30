@@ -31,6 +31,7 @@ from .application.usecases.memory_report import MemoryReport
 from .application.usecases.plan_study_path import PlanStudyPath
 from .application.usecases.scan_site import ScanSite
 from .application.usecases.session_report import SessionReport
+from .application.usecases.watch_site import WatchSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .infrastructure.persistence.repository import (
@@ -40,6 +41,7 @@ from .infrastructure.persistence.repository import (
     SqliteSessionRepository,
     SqliteUsageRepository,
 )
+from .infrastructure.push.pushers import build_pushers
 from .infrastructure.search.web_search import BingSearch
 from .presentation.server import Usecases, create_app
 from .settings import PROJECT_ROOT, Settings, load_settings
@@ -66,6 +68,7 @@ __all__ = [
     "build_task_recorder",
     "build_usage_repository",
     "build_usecases",
+    "build_watch_usecase",
 ]
 
 
@@ -223,6 +226,29 @@ def build_eval_usecase(dataset_path=None) -> EvaluateIdentification:
     meter = build_cost_meter(settings, profile, "eval", note="识别能力评测")
     llm = OpenAiCompatLlm(profile, meter=meter)
     return EvaluateIdentification(llm=llm, dataset_path=dataset_path, meter=meter)
+
+
+def build_watch_usecase(note: str = "") -> WatchSite:
+    """组装 watch 用例（M3 定时推送）：识别 + 所有已启用的推送通道。
+
+    识别部分和 sai identify 完全同款（路由 + 计价 + 记忆 + 会话），
+    所以定时跑的每次盯梢同样便宜、同样有轨迹可回放。
+    推送通道按 config.yaml 的 push 段装配，一个都没配 = 只识别不外推。
+    """
+    settings = load_settings_or_raise()
+    recorder = build_task_recorder("watch", note)
+    profile = settings.profile_for_task("identify")
+    meter = build_cost_meter(settings, profile, "identify", note,
+                             session_id=recorder.session_id)
+    llm = OpenAiCompatLlm(profile, meter=meter, recorder=recorder)
+    identify = IdentifyCompetitions(
+        build_notice_source(),
+        llm,
+        build_competition_repository(),
+        memory=build_memory_repository(),
+        recorder=recorder,
+    )
+    return WatchSite(identify=identify, pushers=build_pushers(settings.yaml_config.push))
 
 
 def _build_context_config():

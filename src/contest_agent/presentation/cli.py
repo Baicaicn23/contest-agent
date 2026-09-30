@@ -14,6 +14,7 @@
     sai sessions             列出最近任务会话（M2）
     sai replay 编号          回放一次任务的完整轨迹（M2）
     sai eval                 识别能力评测 + 防退化比对（M2）
+    sai watch                盯一次官网，新比赛推送到已配置通道（M3）
     sai model                查看模型档案列表（带 * 的是当前生效档案）
     sai model use qwen       切换模型档案（P2 接入 LLM 工厂时实现）
     sai serve                启动 FastAPI 服务（默认 127.0.0.1:8000）
@@ -110,6 +111,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="只考前 N 条（默认全卷 30 条）")
     evl.add_argument("--dataset", default=None, metavar="路径",
                      help="自定义考卷路径（默认 tests/fixtures/eval_identify.json）")
+
+    # 子命令十：sai watch（M3：盯一次官网，发现新比赛就推送）
+    watch = sub.add_parser("watch", help="盯一次官网：识别 + 新比赛推送到已配置的通道")
+    watch.add_argument("--limit", type=int, default=10, help="每次扫最近多少条（默认 10）")
+    watch.add_argument("--no-push", action="store_true",
+                       help="只识别不推送（干跑：看看能发现什么）")
+    watch.add_argument("--loop", action="store_true",
+                       help="常驻循环模式（每 --interval 秒盯一次；正式长期使用建议用 cron）")
+    watch.add_argument("--interval", type=int, default=1800,
+                       help="loop 模式的间隔秒数（默认 1800 = 半小时）")
 
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
@@ -607,6 +618,66 @@ def _run_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_watch_once(args: argparse.Namespace) -> int:
+    """执行一次 sai watch：识别 + 推送，返回进程退出码。loop 模式循环调它。"""
+    import time as time_module
+
+    from ..composition import build_watch_usecase
+
+    while True:
+        exit_code = _watch_round(args)
+        if not args.loop:
+            return exit_code
+        print(f"\n（loop 模式：{args.interval} 秒后再盯一次，Ctrl+C 停止）")
+        try:
+            time_module.sleep(args.interval)
+        except KeyboardInterrupt:
+            print("\n已停止盯梢。")
+            return 0
+
+
+def _watch_round(args: argparse.Namespace) -> int:
+    """盯一轮：识别 -> 有新比赛就推送 -> 播报结果。"""
+    from ..composition import build_watch_usecase
+
+    try:
+        usecase = build_watch_usecase(note=f"limit={args.limit}")
+        result = usecase.execute(limit=args.limit, push=not args.no_push)
+    except (ConnectionError, RuntimeError) as error:
+        print(f"盯梢失败：{error}")
+        return 1
+
+    if usecase.identify.budget_error:
+        print(f"⚠️ {usecase.identify.budget_error}")
+
+    if not result.new_cards:
+        print("本轮没有发现新比赛。（识别结论已进记忆，下一轮同样的通知不再花钱）")
+    else:
+        print(f"🔔 发现 {len(result.new_cards)} 场新比赛：")
+        for card in result.new_cards:
+            deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "见通知"
+            print(f"  - {card.name}（截止 {deadline}）")
+            print(f"    {card.notice_url}")
+
+    if args.no_push:
+        return 0
+    if not result.push_results:
+        if result.new_cards:
+            print("（config.yaml 的 push 段没有启用任何通道，本轮只在终端播报。"
+                  "配 webhook/file/smtp 后即可外推）")
+        return 0
+
+    print("\n推送结果：")
+    failed = False
+    for r in result.push_results:
+        mark = "✅" if r["ok"] else "❌"
+        print(f"  {mark} {r['channel']}")
+        if not r["ok"]:
+            failed = True
+            print(f"     {r.get('error', '')}")
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -676,6 +747,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "eval":
         return _run_eval(args)
+
+    if args.command == "watch":
+        return _run_watch_once(args)
 
     if args.command == "serve":
         # uvicorn 是 FastAPI 官方配套的 Web 服务器，负责真正监听端口、处理 HTTP

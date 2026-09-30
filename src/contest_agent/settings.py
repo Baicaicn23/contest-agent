@@ -90,6 +90,32 @@ class ContextSettings(BaseModel):
     # le=0.9：压缩本身也要占窗口，阈值给到 90% 以上就来不及了（框架的同款约束）
 
 
+class SmtpConfig(BaseModel):
+    """邮件推送的连接配置（M3）。密码只存环境变量名，和模型密钥同一套安全规矩。"""
+
+    host: str                          # SMTP 服务器，如 smtp.qq.com
+    port: int = 465                    # 端口（465 = SSL）
+    user: str                          # 发件邮箱账号
+    password_env: str = "SMTP_PASSWORD"  # 存授权码/密码的环境变量名
+    from_addr: str = ""                # 发件人显示地址；空则用 user
+    to_addrs: list[str] = Field(default_factory=list)  # 收件人列表
+
+
+class PushConfig(BaseModel):
+    """推送通道配置（M3 定时推送用）。
+
+    三个通道互相独立：配了哪个就启用哪个，全不配 = 只在终端播报不外推。
+    - webhook：往一个 URL POST JSON（钉钉/企微/Server酱等机器人的通用形态）；
+    - file：写 Markdown 文件到本地目录（开发调试、不想配外部服务时用）；
+    - smtp：发邮件（需要邮箱开 SMTP 并拿授权码）。
+    """
+
+    webhook_url: str | None = None     # 接收 POST 的 URL；None = 不启用
+    webhook_timeout: float = Field(default=10, gt=0)  # POST 超时（秒）
+    file_dir: str | None = None        # 文件通道输出目录；None = 不启用
+    smtp: SmtpConfig | None = None     # 邮件通道；None = 不启用
+
+
 class YamlConfig(BaseModel):
     """config.yaml 整个文件的结构化映射：yaml 长什么样，这里就定义成什么样。"""
 
@@ -103,6 +129,7 @@ class YamlConfig(BaseModel):
     routing: dict[str, str] = Field(default_factory=dict)
     budget_per_task_yuan: float | None = None  # 单任务预算上限（元）；None = 不限
     context: ContextSettings = ContextSettings()  # agent 循环的上下文压缩阈值
+    push: PushConfig = PushConfig()        # 推送通道（M3 定时推送用，默认全关）
 
 
 class Settings(BaseModel):

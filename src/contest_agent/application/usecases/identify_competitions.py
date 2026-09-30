@@ -75,6 +75,9 @@ class IdentifyCompetitions:
         # 最近一次入库统计：{"new": 新增几张卡, "existing": 已存在几张}；
         # 没配仓储就是 None。P3 起有值
         self.last_sync: dict[str, int] | None = None
+        # 本次识别"新入库"的卡片清单（M3 定时推送用）：
+        # last_sync 只记数量，推送需要知道"具体是哪几场新比赛"
+        self.new_cards: list[Competition] = []
         # M1 预算闸门：预算熔断时把报错存这里（而不是让异常直接飞出去）。
         # 原因：熔断前已经花钱识别出的卡片必须照常入库——
         # 钱不能白花，熔断只是"别再花了"，不是"把干了活的扔掉"。
@@ -122,7 +125,8 @@ class IdentifyCompetitions:
         return outcomes
 
     def _sync_store(self, outcomes: list[ScanOutcome]) -> None:
-        """把识别出的比赛卡片幂等入库（P3）。统计记到 last_sync。"""
+        """把识别出的比赛卡片幂等入库（P3）。统计记到 last_sync，新卡记到 new_cards。"""
+        self.new_cards = []
         if self.competition_store is None:
             return
         new_count = existing_count = 0
@@ -131,6 +135,7 @@ class IdentifyCompetitions:
                 continue  # 非比赛没有卡片可存
             if self.competition_store.save_if_absent(outcome.competition):
                 new_count += 1
+                self.new_cards.append(outcome.competition)  # 新面孔，推送就推它们
             else:
                 existing_count += 1
         self.last_sync = {"new": new_count, "existing": existing_count}
