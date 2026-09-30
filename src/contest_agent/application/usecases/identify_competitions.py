@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ...domain.entities import Competition, Notice, parse_date
-from ...domain.ports import LlmPort, NoticeSourcePort
+from ...domain.ports import CompetitionRepositoryPort, LlmPort, NoticeSourcePort
 from ..keyword_filter import keyword_hit
 from ..prompts import CARD_SCHEMA, IDENTIFY_SYSTEM_PROMPT
 
@@ -36,17 +36,42 @@ class ScanOutcome:
 
 
 class IdentifyCompetitions:
-    """识别比赛：扫描 -> 粗筛 -> 补详情 -> LLM 识别 -> 卡片。"""
+    """识别比赛：扫描 -> 粗筛 -> 补详情 -> LLM 识别 -> 卡片 -> 入库。"""
 
-    def __init__(self, source: NoticeSourcePort, llm: LlmPort):
-        # 依赖注入：爬虫和 LLM 都从外面递进来，本类只认识端口接口
+    def __init__(
+        self,
+        source: NoticeSourcePort,
+        llm: LlmPort,
+        competition_store: CompetitionRepositoryPort | None = None,
+    ):
+        # 依赖注入：爬虫、LLM、仓储都从外面递进来，本类只认识端口接口
         self.source = source
         self.llm = llm
+        self.competition_store = competition_store
+        # 最近一次入库统计：{"new": 新增几张卡, "existing": 已存在几张}；
+        # 没配仓储就是 None。P3 起有值
+        self.last_sync: dict[str, int] | None = None
 
     def execute(self, limit: int = 5) -> list[ScanOutcome]:
-        """扫描最新 limit 条通知并逐条识别。"""
+        """扫描最新 limit 条通知并逐条识别；有仓储就把卡片幂等入库。"""
         notices = self.source.list_notices(limit=limit)
-        return [self._identify_one(notice) for notice in notices]
+        outcomes = [self._identify_one(notice) for notice in notices]
+        self._sync_store(outcomes)
+        return outcomes
+
+    def _sync_store(self, outcomes: list[ScanOutcome]) -> None:
+        """把识别出的比赛卡片幂等入库（P3）。统计记到 last_sync。"""
+        if self.competition_store is None:
+            return
+        new_count = existing_count = 0
+        for outcome in outcomes:
+            if not outcome.is_competition or outcome.competition is None:
+                continue  # 非比赛没有卡片可存
+            if self.competition_store.save_if_absent(outcome.competition):
+                new_count += 1
+            else:
+                existing_count += 1
+        self.last_sync = {"new": new_count, "existing": existing_count}
 
     def _identify_one(self, notice: Notice) -> ScanOutcome:
         # 第 1 步：关键词粗筛（只看标题和已有内容，零成本）

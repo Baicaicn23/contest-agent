@@ -18,26 +18,37 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .application.usecases.generate_report import GenerateReport
 from .application.usecases.identify_competitions import IdentifyCompetitions
 from .application.usecases.scan_site import ScanSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
+from .infrastructure.persistence.repository import (
+    SqliteCompetitionRepository,
+    SqliteNoticeRepository,
+)
 from .presentation.server import create_app
 from .settings import Settings, load_settings
 
 __all__ = [
+    "app",
     "build_app",
+    "build_competition_repository",
     "build_identify_usecase",
     "build_llm",
+    "build_notice_repository",
     "build_notice_source",
+    "build_report_usecase",
     "build_scan_usecase",
-    "app",
 ]
 
 
 def load_settings_or_raise() -> Settings:
     """读配置。单独包一层只是为了让装配代码读起来更顺，没有别的魔法。"""
     return load_settings()
+
+
+# ---------- 基础设施（domain 端口的具体实现，只在这里露面） ----------
 
 
 def build_notice_source() -> RequestsNoticeSource:
@@ -47,15 +58,6 @@ def build_notice_source() -> RequestsNoticeSource:
     """
     settings = load_settings_or_raise()
     return RequestsNoticeSource(settings.yaml_config.sources[0])
-
-
-def build_scan_usecase() -> ScanSite:
-    """组装 scan_site 用例：把爬虫递给用例（P1）。
-
-    注意依赖方向：用例只认识 NoticeSourcePort 接口，
-    RequestsNoticeSource 这个具体类名只出现在本文件里。
-    """
-    return ScanSite(build_notice_source())
 
 
 def build_llm() -> OpenAiCompatLlm:
@@ -68,24 +70,54 @@ def build_llm() -> OpenAiCompatLlm:
     return OpenAiCompatLlm(settings.active_profile)
 
 
-def build_identify_usecase() -> IdentifyCompetitions:
-    """组装 identify_competitions 用例：爬虫 + LLM 一起递给用例（P2）。
+def build_notice_repository() -> SqliteNoticeRepository:
+    """组装通知台账仓储：连接串来自 settings（P3）。
 
-    这就是"两个端口在一处会师"：用例只管编排，
-    具体的爬虫和 LLM 实现都由本函数决定。
+    换数据库 = 换 DATABASE_URL 环境变量，本文件都不用动。
     """
-    return IdentifyCompetitions(build_notice_source(), build_llm())
+    settings = load_settings_or_raise()
+    return SqliteNoticeRepository(settings.database_url)
+
+
+def build_competition_repository() -> SqliteCompetitionRepository:
+    """组装比赛卡片仓储（P3）。"""
+    settings = load_settings_or_raise()
+    return SqliteCompetitionRepository(settings.database_url)
+
+
+# ---------- 用例（业务动作 = 若干端口能力的编排） ----------
+
+
+def build_scan_usecase() -> ScanSite:
+    """组装 scan_site 用例：爬虫 + 通知台账（P1 纯扫描，P3 起顺手入库）。"""
+    return ScanSite(build_notice_source(), build_notice_repository())
+
+
+def build_identify_usecase() -> IdentifyCompetitions:
+    """组装 identify_competitions 用例：爬虫 + LLM + 卡片仓储（P2/P3）。
+
+    这就是"三个端口在一处会师"：用例只管编排，
+    具体实现都由本函数决定。
+    """
+    return IdentifyCompetitions(
+        build_notice_source(), build_llm(), build_competition_repository()
+    )
+
+
+def build_report_usecase() -> GenerateReport:
+    """组装 generate_report 用例：从卡片仓储读数据渲染 Markdown 报告（P3）。"""
+    return GenerateReport(build_competition_repository())
+
+
+# ---------- HTTP 呈现层 ----------
 
 
 def build_app() -> FastAPI:
     """组装整个应用，返回配置齐全的 FastAPI 实例。"""
     settings = load_settings_or_raise()
 
-    # P2 起爬虫/LLM 不在 build_app 里接线（HTTP 层暂时不用它们），
-    # 而是由 build_scan_usecase / build_identify_usecase 按需组装；
-    # P3: repo = SqliteCompetitionRepository(settings.database_url)      # 仓储实现"会存比赛"
-    # P4/P5: 用例装配手写 harness 与 skills，交给接口层
-
+    # 用例按需组装（见上方各 build_* 函数）；
+    # P6 会把 /scan /competitions /generate 三个接口接到对应用例上
     return create_app(settings)
 
 

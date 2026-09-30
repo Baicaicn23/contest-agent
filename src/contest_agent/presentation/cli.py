@@ -38,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identify.add_argument("--limit", type=int, default=5, help="扫描最近多少条通知（默认 5）")
 
+    # 子命令三：sai report [--out 路径]（P3：渲染 Markdown 比赛情报报告）
+    report = sub.add_parser("report", help="把库里的比赛卡片渲染成 Markdown 报告")
+    report.add_argument(
+        "--out", default=None, help="输出文件路径（默认 output/contest_report.md）"
+    )
+
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
     model.add_argument("action", nargs="?", default="list", choices=["list", "use"])
@@ -63,7 +69,8 @@ def _run_scan(args: argparse.Namespace) -> int:
     detail_indexes = [args.detail] if args.detail is not None else []
 
     try:
-        notices = build_scan_usecase().execute(
+        usecase = build_scan_usecase()
+        notices = usecase.execute(
             limit=args.limit, detail_indexes=detail_indexes
         )
     except ConnectionError as error:
@@ -80,6 +87,13 @@ def _run_scan(args: argparse.Namespace) -> int:
         date = notice.published_at.strftime("%Y-%m-%d") if notice.published_at else "????-??-??"
         print(f"{number:>2}. [{date}] {notice.title}")
         print(f"     {notice.source_url}")
+
+    # P3 起 scan 会把通知幂等写入台账，把账目亮出来
+    if usecase.last_sync:
+        print(
+            f"\n台账入库：新增 {usecase.last_sync['new']} 条，"
+            f"已存在 {usecase.last_sync['existing']} 条"
+        )
 
     # 用户点名要的那条详情，打印正文
     if args.detail is not None and args.detail <= len(notices):
@@ -101,7 +115,8 @@ def _run_identify(args: argparse.Namespace) -> int:
     from ..composition import build_identify_usecase
 
     try:
-        outcomes = build_identify_usecase().execute(limit=args.limit)
+        usecase = build_identify_usecase()
+        outcomes = usecase.execute(limit=args.limit)
     except (ConnectionError, RuntimeError) as error:
         # RuntimeError 多为密钥没配；ConnectionError 是网络/重试耗尽
         print(f"识别失败：{error}")
@@ -113,6 +128,13 @@ def _run_identify(args: argparse.Namespace) -> int:
         f"共扫描 {len(outcomes)} 条通知，识别出比赛 {competition_count} 条"
         f"（粗筛挡下 {len(outcomes) - llm_count} 条，实际调用 LLM {llm_count} 次）\n"
     )
+
+    # P3 起识别出的卡片会幂等入库，把账目亮出来
+    if usecase.last_sync:
+        print(
+            f"卡片入库：新增 {usecase.last_sync['new']} 张，"
+            f"已存在 {usecase.last_sync['existing']} 张\n"
+        )
 
     type_names = {"deliverable": "交付物型", "exam": "考试型"}
     for number, outcome in enumerate(outcomes, start=1):
@@ -132,6 +154,30 @@ def _run_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_report(args: argparse.Namespace) -> int:
+    """执行 sai report：渲染 Markdown 报告，写入文件并打印到终端。
+
+    报告默认写到 output/ 目录（该目录已被 gitignore：报告是产物，
+    随时可以重新生成，不需要进版本库）。
+    """
+    from pathlib import Path
+
+    from ..composition import build_report_usecase
+    from ..settings import PROJECT_ROOT
+
+    markdown = build_report_usecase().execute()
+
+    out_path = (
+        Path(args.out) if args.out else PROJECT_ROOT / "output" / "contest_report.md"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(markdown, encoding="utf-8")
+
+    print(f"报告已生成：{out_path}\n")
+    print(markdown)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -145,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "identify":
         return _run_identify(args)
+
+    if args.command == "report":
+        return _run_report(args)
 
     if args.command == "model":
         # 在函数内部 import：只有真的执行到这个子命令才加载配置模块
