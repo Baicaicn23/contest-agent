@@ -57,6 +57,25 @@ class Competition:
     deadline: datetime | None = None  # 报名或提交截止时间
     evidence: str = ""   # 原文证据片段：LLM 说这是比赛，就得指出来原文哪句话支持的——防幻觉
 
+
+@dataclass
+class UsageEntry:
+    """一次 LLM 调用的"账单流水"（M1 成本台账）。
+
+    每次调用大模型（不管走识别的结构化调用，还是走 agent 循环），
+    都会记一条流水进 usage_records 表——就像银行对账单上的一行。
+    有了流水，"识别 10 条通知花了多少钱"这类问题才答得出来。
+    """
+
+    task_type: str        # 这次调用属于哪个任务：identify / generate / study_path
+    profile_name: str     # 用的哪个模型档案（如 deepseek）——模型路由的"台账可证"就靠它
+    model: str            # 具体模型名（如 deepseek-chat），比档案名更细一层
+    prompt_tokens: int    # 输入 token 数（服务商在响应里如实回报的）
+    completion_tokens: int  # 输出 token 数
+    cost_yuan: float | None = None  # 折算费用（元）。档案没配单价时是 None（记不了钱但记得量）
+    note: str = ""        # 备注哪个比赛/哪次扫描，方便对账
+    created_at: datetime | None = None  # 记账时间；仓储写入时自动补当前时间
+
 # 历史注记（v1.5）：P4 曾自研过 ToolCall / LlmReply 实体和手写 ReAct 循环，
 # v1.5 采纳 AgentScope 后由框架的消息模型接管（ADR-002）；
 # 实体随 loop.py/registry.py 一同移除，git 历史可查。

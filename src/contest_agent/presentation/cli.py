@@ -5,6 +5,11 @@
 
 用法（装好依赖后，用 uv run sai xxx 执行）：
     sai scan                 扫描官网通知并识别比赛（P1/P2 实现后可用）
+    sai identify             扫描 + LLM 识别比赛卡片（P2/P3）
+    sai report               渲染比赛情报报告（P3）
+    sai generate             生成参赛材料（AgentScope 循环，P4）
+    sai study-path           生成备考路径（P5）
+    sai cost                 查 LLM 花费账单（M1 成本台账）
     sai model                查看模型档案列表（带 * 的是当前生效档案）
     sai model use qwen       切换模型档案（P2 接入 LLM 工厂时实现）
     sai serve                启动 FastAPI 服务（默认 127.0.0.1:8000）
@@ -70,6 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="比赛名称关键字（默认优先取库里第一张考试型卡片）",
     )
 
+    # 子命令六：sai cost [--task 名] [--today | --date 日期]（M1：查成本台账）
+    cost = sub.add_parser("cost", help="查 LLM 花费账单（识别 10 条通知花了多少钱就问它）")
+    cost.add_argument(
+        "--task", default=None, choices=["identify", "generate", "study_path"],
+        help="只看某个任务的账单（默认全部任务）",
+    )
+    cost.add_argument(
+        "--today", action="store_true", help="只看今天的账单"
+    )
+    cost.add_argument(
+        "--date", default=None, metavar="YYYY-MM-DD", help="只看指定某天的账单"
+    )
+
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
     model.add_argument("action", nargs="?", default="list", choices=["list", "use"])
@@ -82,6 +100,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
 
     return parser
+
+
+def _describe_prices(profile) -> str:
+    """把模型档案的单价拼成一小段展示文字（sai model 列表用）。
+
+    没配单价就什么都不显示——列表保持干净，也提示你去 config.yaml 补价格。
+    """
+    if profile.input_price_per_m is None or profile.output_price_per_m is None:
+        return ""
+    return f"（¥{profile.input_price_per_m}/¥{profile.output_price_per_m} 每百万 tok）"
 
 
 def _run_scan(args: argparse.Namespace) -> int:
@@ -161,6 +189,11 @@ def _run_identify(args: argparse.Namespace) -> int:
             f"卡片入库：新增 {usecase.last_sync['new']} 张，"
             f"已存在 {usecase.last_sync['existing']} 张\n"
         )
+
+    # M1 预算闸门：熔断了要亮出来——已花钱的部分照常入库，但任务没跑完
+    if usecase.budget_error:
+        print(f"⚠️ {usecase.budget_error}")
+        print("（已识别的卡片已入库；可调高 config.yaml 的 budget_per_task_yuan 后重跑）\n")
 
     type_names = {"deliverable": "交付物型", "exam": "考试型"}
     for number, outcome in enumerate(outcomes, start=1):
@@ -282,6 +315,80 @@ def _run_study_path(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_cost(args: argparse.Namespace) -> int:
+    """执行 sai cost：查成本台账，按任务/模型汇总打印（M1）。
+
+    这就是 v2 验收题"识别 10 条通知花了多少钱"的标准答案入口：
+    sai cost --task identify --today
+    """
+    from datetime import date as date_cls, datetime
+
+    from ..composition import build_cost_report_usecase
+
+    # --today 和 --date 二选一：都给了以 --today 为准（简单明确，不搞组合语义）
+    on_date: date | None = None
+    if args.today:
+        on_date = date_cls.today()
+    elif args.date:
+        try:
+            on_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+        except ValueError:
+            print(f"日期格式不对：{args.date!r}，应为 YYYY-MM-DD")
+            return 1
+
+    summary = build_cost_report_usecase().execute(task_type=args.task, on_date=on_date)
+
+    # 范围说明放在第一行，避免"以为看的全部其实是今天"这种对账误会
+    if args.today:
+        scope = f"今天（{on_date.isoformat()}）"
+    elif on_date is not None:
+        scope = f"{on_date.isoformat()}"
+    elif args.task:
+        scope = f"任务 = {args.task}"
+    else:
+        scope = "全部"
+
+    print(f"账单范围：{scope}\n")
+
+    def _fmt_cost(cost: float | None, calls: int) -> str:
+        """费用格式化：没配单价时如实显示"未知"，不编数字。"""
+        if cost is None:
+            return "费用未知（模型档案未配单价）" if calls else "¥0"
+        return f"¥{cost:.4f}"
+
+    total = summary.total
+    if total.calls == 0:
+        print("（还没有任何 LLM 调用记录。跑一次 sai identify 或 sai generate 再来看）")
+        return 0
+
+    print(
+        f"总计：{total.calls} 次调用 ｜ 输入 {total.prompt_tokens:,} tok ｜ "
+        f"输出 {total.completion_tokens:,} tok ｜ {_fmt_cost(total.cost_yuan, total.calls)}"
+    )
+
+    if summary.by_task:
+        print("\n按任务：")
+        for task_name, bucket in sorted(
+            summary.by_task.items(), key=lambda item: -item[1].calls
+        ):
+            print(
+                f"  {task_name:<12} {bucket.calls:>3} 次  "
+                f"输入 {bucket.prompt_tokens:>8,}  输出 {bucket.completion_tokens:>7,}  "
+                f"{_fmt_cost(bucket.cost_yuan, bucket.calls)}"
+            )
+
+    if summary.by_model:
+        print("\n按模型：")
+        for model_name, bucket in sorted(
+            summary.by_model.items(), key=lambda item: -item[1].calls
+        ):
+            print(
+                f"  {model_name:<20} {bucket.calls:>3} 次  {_fmt_cost(bucket.cost_yuan, bucket.calls)}"
+            )
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -327,8 +434,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"当前档案：{settings.active_model}")
         for name, profile in settings.yaml_config.models.items():
             marker = "*" if name == settings.active_model else " "
-            print(f" {marker} {name:<10} {profile.model}")
+            prices = _describe_prices(profile)
+            print(f" {marker} {name:<10} {profile.model}{prices}")
+
+        # M1 模型路由：展示"哪个任务用哪个档案"（没配的任务用当前档案兜底）
+        if settings.yaml_config.routing:
+            print("\n按任务路由（未列出的任务用当前档案）：")
+            for task_name, routed in sorted(settings.yaml_config.routing.items()):
+                print(f"  {task_name:<12} -> {routed}")
         return 0
+
+    if args.command == "cost":
+        return _run_cost(args)
 
     if args.command == "serve":
         # uvicorn 是 FastAPI 官方配套的 Web 服务器，负责真正监听端口、处理 HTTP

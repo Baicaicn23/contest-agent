@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from ...domain.entities import Competition, Notice, parse_date
 from ...domain.ports import CompetitionRepositoryPort, LlmPort, NoticeSourcePort
+from ..cost import BudgetExceededError
 from ..keyword_filter import keyword_hit
 from ..prompts import CARD_SCHEMA, IDENTIFY_SYSTEM_PROMPT
 
@@ -51,11 +52,26 @@ class IdentifyCompetitions:
         # 最近一次入库统计：{"new": 新增几张卡, "existing": 已存在几张}；
         # 没配仓储就是 None。P3 起有值
         self.last_sync: dict[str, int] | None = None
+        # M1 预算闸门：预算熔断时把报错存这里（而不是让异常直接飞出去）。
+        # 原因：熔断前已经花钱识别出的卡片必须照常入库——
+        # 钱不能白花，熔断只是"别再花了"，不是"把干了活的扔掉"。
+        # CLI 检查这个字段决定要不要播报熔断、返回非零退出码
+        self.budget_error: str | None = None
 
     def execute(self, limit: int = 5) -> list[ScanOutcome]:
-        """扫描最新 limit 条通知并逐条识别；有仓储就把卡片幂等入库。"""
+        """扫描最新 limit 条通知并逐条识别；有仓储就把卡片幂等入库。
+
+        M1 起逐条捕获 BudgetExceededError：某条通知触法熔断就停下
+        （不再识别后面的通知），但前面已识别的结果照常打包返回。
+        """
         notices = self.source.list_notices(limit=limit)
-        outcomes = [self._identify_one(notice) for notice in notices]
+        outcomes: list[ScanOutcome] = []
+        for notice in notices:
+            try:
+                outcomes.append(self._identify_one(notice))
+            except BudgetExceededError as error:
+                self.budget_error = str(error)
+                break
         self._sync_store(outcomes)
         return outcomes
 

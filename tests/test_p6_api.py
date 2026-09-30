@@ -74,6 +74,16 @@ class ExplodingIdentify:
         raise RuntimeError("库里还没有比赛卡片")
 
 
+class FakeCostReport:
+    """假成本用例：返回一笔固定账单，测 /cost 的翻译层。"""
+
+    def execute(self, task_type=None, on_date=None):
+        from contest_agent.application.usecases.cost_report import CostSummary, TaskCost
+
+        bucket = TaskCost(calls=2, prompt_tokens=3000, completion_tokens=800, cost_yuan=0.0184)
+        return CostSummary(total=bucket, by_task={"identify": bucket}, by_model={})
+
+
 def _client(usecases: Usecases | None):
     from contest_agent.presentation.server import create_app as _ca
 
@@ -149,6 +159,36 @@ def test_missing_usecase_returns_503() -> None:
 
     assert resp.status_code == 503
     assert "DEEPSEEK_API_KEY" in resp.json()["detail"]
+
+
+# ---------- /cost 接口（M1） ----------
+
+
+def test_cost_endpoint_returns_bill() -> None:
+    """账单查询：参数透传 + 汇总结构原样返回。"""
+    client = _client(Usecases(cost_report=FakeCostReport()))
+
+    resp = client.get("/cost", params={"task": "identify"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"]["calls"] == 2
+    assert body["by_task"]["identify"]["cost_yuan"] == pytest.approx(0.0184)
+
+
+def test_cost_endpoint_validates_params() -> None:
+    """参数校验：任务名不认识、日期格式不对都返回 422。"""
+    client = _client(Usecases(cost_report=FakeCostReport()))
+
+    assert client.get("/cost", params={"task": " nonsense"}).status_code == 422
+    assert client.get("/cost", params={"date": "2026/09/30"}).status_code == 422
+
+
+def test_cost_endpoint_503_when_not_wired() -> None:
+    """用例未装配（不应发生，但接口要有降级姿态）。"""
+    resp = _client(Usecases()).get("/cost")
+
+    assert resp.status_code == 503
 
 
 def test_build_app_smoke() -> None:

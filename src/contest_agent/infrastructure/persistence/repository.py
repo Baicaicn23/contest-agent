@@ -11,14 +11,15 @@ NoticeRepositoryPort 接口，这两个具体类名只出现在 composition.py�
 from __future__ import annotations
 
 import hashlib
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from ...domain.entities import Competition, Notice
-from .models import Base, CompetitionModel, NoticeModel
+from ...domain.entities import Competition, Notice, UsageEntry
+from .models import Base, CompetitionModel, NoticeModel, UsageRecordModel
 
 
 def _build_engine(database_url: str) -> Engine:
@@ -160,3 +161,65 @@ class SqliteCompetitionRepository:
         """卡片总数（给报告和 CLI 展示用）。"""
         with self._session_factory() as session:
             return len(session.scalars(select(CompetitionModel.id)).all())
+
+
+class SqliteUsageRepository:
+    """usage_records 表的仓储，实现 UsageRepositoryPort（M1 成本台账）。
+
+    只有两个动作：记一笔（record）、按条件查流水（list_entries）。
+    聚合汇总（求和、分组）不在这层做——那是 CostReport 用例的业务逻辑，
+    放在用例层才能用假仓储离线测试。
+    """
+
+    def __init__(self, database_url: str):
+        self._engine = _build_engine(database_url)
+        Base.metadata.create_all(self._engine)
+        self._session_factory = sessionmaker(bind=self._engine)
+
+    def record(self, entry: UsageEntry) -> None:
+        """记一笔 LLM 调用流水。created_at 没写就补当前时间。"""
+        with self._session_factory() as session, session.begin():
+            session.add(
+                UsageRecordModel(
+                    task_type=entry.task_type,
+                    profile_name=entry.profile_name,
+                    model=entry.model,
+                    prompt_tokens=entry.prompt_tokens,
+                    completion_tokens=entry.completion_tokens,
+                    cost_yuan=entry.cost_yuan,
+                    note=entry.note,
+                    created_at=entry.created_at or datetime.now(),
+                )
+            )
+
+    def list_entries(
+        self, task_type: str | None = None, on_date: date | None = None
+    ) -> list[UsageEntry]:
+        """按条件查流水，按时间正序返回（对账习惯：从早到晚）。
+
+        过滤思路：task_type 精确匹配；on_date 用"当天零点 <= 时刻 < 次日零点"
+        的区间判断——数据库里存的是带时间的 datetime，按天查就是圈定这个区间。
+        """
+        query = select(UsageRecordModel).order_by(UsageRecordModel.created_at)
+        if task_type is not None:
+            query = query.where(UsageRecordModel.task_type == task_type)
+        if on_date is not None:
+            day_start = datetime(on_date.year, on_date.month, on_date.day)
+            day_end = datetime(on_date.year, on_date.month, on_date.day) + timedelta(days=1)
+            query = query.where(UsageRecordModel.created_at >= day_start,
+                                UsageRecordModel.created_at < day_end)
+        with self._session_factory() as session:
+            rows = session.scalars(query).all()
+            return [
+                UsageEntry(
+                    task_type=row.task_type,
+                    profile_name=row.profile_name,
+                    model=row.model,
+                    prompt_tokens=row.prompt_tokens,
+                    completion_tokens=row.completion_tokens,
+                    cost_yuan=row.cost_yuan,
+                    note=row.note,
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]

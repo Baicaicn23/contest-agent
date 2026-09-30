@@ -4,6 +4,46 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — v2/M1 成本台账与上下文管理
+
+### 新增
+
+- **成本台账**：新表 `usage_records` 记录每次 LLM 调用的 token 与费用；
+  `sai cost`（支持 `--task` / `--today` / `--date`）与 `GET /cost` 查询；
+  能回答"识别 10 条通知花了多少钱"（实测 ¥0.0173/4 次）
+- **预算闸门**：`budget_per_task_yuan`（config.yaml 或环境变量
+  `BUDGET_PER_TASK_YUAN`）设单任务花费上限，超限熔断；已产生的
+  调用与入库结果保留（熔断不是清算）
+- **模型路由**：config.yaml 的 `routing` 表按任务指定模型档案
+  （识别配便宜模型、生成配强模型），`sai model` 展示路由表，
+  台账按模型分组可证
+- **上下文管理**：agent 循环接入 AgentScope 内置压缩
+  （`context.trigger_ratio`，超阈值自动把旧对话压成结构化摘要）；
+  所有工具返回值统一截断（4000 字安全网）；离线测试验证自动压缩真实发生
+- **HTTP 接口**：`GET /cost`（按任务/日期过滤的成本账单）
+
+### 设计决策
+
+- **ADR-003**：成本记账走"两条 LLM 通路各设卡口"——结构化调用在
+  `OpenAiCompatLlm` 注入 `CostMeter`，agent 循环用 `MeteredChatModel`
+  代理包住框架模型客户端（熔断前查 + 调用后记账，用例层零改动）；
+  上下文压缩采用框架内置能力不自研（沿 ADR-002 原则），被否决选项
+  与已知缺口（压缩摘要调用不入账）见 ADR
+
+### 变更
+
+- `IdentifyCompetitions.execute` 逐条捕获预算熔断，保留已完成结果
+- `settings.py` 新增模型单价（`input_price_per_m`/`output_price_per_m`）、
+  路由、预算、上下文四组配置；config.yaml 同步
+- 熔断时序定稿：`precheck()` 在下一次调用发出前拦截；
+  打穿预算的当前调用照常入账
+
+### 测试
+
+- 离线 84 项（M1 新增 22 + /cost 接口回归 3）+ live 4 项全绿
+- 真实验收：识别 10 条通知花费可答；`BUDGET_PER_TASK_YUAN=0.001`
+  真实熔断演示通过；live 备考路径 13 笔循环调用全部入账
+
 ## [0.1.0] - 2026-09-30
 
 首个公开发布版本：完整的"盯官网 → 识别比赛 → 生成材料/备考路径"闭环。
