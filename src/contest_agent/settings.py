@@ -109,6 +109,29 @@ def load_yaml_config(path: Path | None = None) -> YamlConfig:
     return YamlConfig.model_validate(raw)
 
 
+def load_dotenv(path: Path | None = None) -> None:
+    """把项目根目录 .env 文件里的 KEY=VALUE 读进环境变量。
+
+    规则：已存在的环境变量不覆盖（真正的环境变量 > .env 文件），
+    空行、# 开头的注释行、没有等号的行都跳过。
+
+    为什么不装 python-dotenv 库？——这个功能本身就十几行，
+    手写一遍正好看清"密钥是怎么进到进程环境里"的。
+    """
+    env_file = path or (PROJECT_ROOT / ".env")
+    if not env_file.exists():
+        return
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 @lru_cache  # Python 自带的"结果缓存"：第二次调用直接返回第一次的结果，
             # 效果类似手写单例——保证整个进程拿到的是同一份 Settings
 def load_settings() -> Settings:
@@ -118,6 +141,7 @@ def load_settings() -> Settings:
     就算 yaml 里写的 active_model 是 deepseek，也会用 qwen——
     临时切换模型做实验时，不用改文件。
     """
+    load_dotenv()  # 先把 .env 里的密钥装进环境，后面的解析才有得用
     yaml_config = load_yaml_config()
 
     return Settings(
@@ -126,3 +150,34 @@ def load_settings() -> Settings:
         active_model=os.environ.get("ACTIVE_MODEL", yaml_config.active_model),
         yaml_config=yaml_config,
     )
+
+
+def set_active_model(name: str, config_path: Path | None = None) -> None:
+    """把切换后的模型档案名写回 config.yaml（sai model use 的后端）。
+
+    用"按行替换"而不是 yaml 库整体重写：整体重写会把文件里的
+    中文注释全部冲掉，按行替换只动 active_model 那一行，注释原样保留。
+    """
+    config_file = config_path or (PROJECT_ROOT / "config.yaml")
+
+    # 先验证目标档案存在，免得把配置文件写成谁也不认识的档案名
+    yaml_config = load_yaml_config(config_file)
+    if name not in yaml_config.models:
+        available = ", ".join(yaml_config.models)
+        raise KeyError(f"模型档案 '{name}' 不存在，可选：{available}")
+
+    lines = config_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith("active_model:"):
+            # 保留这一行原有的缩进，只替换值
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}active_model: {name}\n"
+            replaced = True
+            break
+    if not replaced:
+        raise ValueError("config.yaml 里找不到 active_model 配置行")
+
+    config_file.write_text("".join(lines), encoding="utf-8")
+    # 清掉 load_settings 的进程内缓存，让切换立刻生效
+    load_settings.cache_clear()

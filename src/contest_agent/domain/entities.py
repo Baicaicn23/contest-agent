@@ -13,6 +13,23 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 
+def parse_date(text: str | None) -> datetime | None:
+    """把日期字符串安全转成 datetime；解析不了就返回 None（绝不抛异常）。
+
+    LLM 提取出来的日期格式没法保证（"2026-10-08"、"2026/10/8"、
+    "2026年10月8日"都有可能），这里把见过的格式都试一遍；
+    全失败返回 None——日期缺失不该让整张卡片作废。
+    """
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y年%m月%d日"):
+        try:
+            return datetime.strptime(text.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
 @dataclass  # 装饰器：自动生成 __init__、__repr__ 等方法，效果类似 Java 里 Lombok 的 @Data
 class Notice:
     """一条官网通知。P1 爬虫的产出物。"""

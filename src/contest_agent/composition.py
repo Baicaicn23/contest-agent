@@ -18,12 +18,21 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .application.usecases.identify_competitions import IdentifyCompetitions
 from .application.usecases.scan_site import ScanSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
+from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .presentation.server import create_app
 from .settings import Settings, load_settings
 
-__all__ = ["build_app", "build_notice_source", "build_scan_usecase", "app"]
+__all__ = [
+    "build_app",
+    "build_identify_usecase",
+    "build_llm",
+    "build_notice_source",
+    "build_scan_usecase",
+    "app",
+]
 
 
 def load_settings_or_raise() -> Settings:
@@ -49,11 +58,31 @@ def build_scan_usecase() -> ScanSite:
     return ScanSite(build_notice_source())
 
 
+def build_llm() -> OpenAiCompatLlm:
+    """组装 LLM 客户端：按当前生效的模型档案创建（P2）。
+
+    密钥缺失会在这里立刻报错（而不是等到调用时），错误信息里
+    会指明该设置哪个环境变量。
+    """
+    settings = load_settings_or_raise()
+    return OpenAiCompatLlm(settings.active_profile)
+
+
+def build_identify_usecase() -> IdentifyCompetitions:
+    """组装 identify_competitions 用例：爬虫 + LLM 一起递给用例（P2）。
+
+    这就是"两个端口在一处会师"：用例只管编排，
+    具体的爬虫和 LLM 实现都由本函数决定。
+    """
+    return IdentifyCompetitions(build_notice_source(), build_llm())
+
+
 def build_app() -> FastAPI:
     """组装整个应用，返回配置齐全的 FastAPI 实例。"""
     settings = load_settings_or_raise()
 
-    # P2: llm = OpenAiCompatLlm(settings.active_profile)                 # LLM 实现"会调模型"
+    # P2 起爬虫/LLM 不在 build_app 里接线（HTTP 层暂时不用它们），
+    # 而是由 build_scan_usecase / build_identify_usecase 按需组装；
     # P3: repo = SqliteCompetitionRepository(settings.database_url)      # 仓储实现"会存比赛"
     # P4/P5: 用例装配手写 harness 与 skills，交给接口层
 
