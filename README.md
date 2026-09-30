@@ -7,7 +7,8 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![AgentScope](https://img.shields.io/badge/AgentLoop-AgentScope-1264A3)](https://github.com/agentscope-ai/agentscope)
-[![Tests](https://img.shields.io/badge/tests-117%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![React](https://img.shields.io/badge/Frontend-React%2018-61DAFB?logo=react&logoColor=white)]
+[![Tests](https://img.shields.io/badge/tests-133%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-参与贡献)
 
@@ -36,6 +37,7 @@
 | ⏰ | **定时推送**：`sai watch` 盯一次官网、发现新比赛推 webhook/邮件/文件；cron 一行接入自动值班 | ✅ v2/M3 |
 | 🧞 | **研究分身**：study-path 内置子代理工具，搜索+精读+压缩一步完成，主循环只收千字摘要 | ✅ v2/M3 |
 | 🚪 | **权限门**：配置驱动——交互模式敏感工具先确认、无人值守按名单禁用（对照沙箱学派的取舍见文档） | ✅ v2/M3 |
+| 🖥️ | **Web 界面**：复刻 Claude Desktop 的三视图 + Settings（亮暗主题/字号真切换）；Overview 六统计与热力图接真实台账；自由对话逐字流式；会话列表即轨迹回放 | ✅ v2/M4 |
 | 🔌 | **端口化架构**：爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档全部面向接口，换实现只改装配根 | ✅ 持续 |
 | 🧪 | **三层测试**：99 项离线（不联网不花钱）+ 4 项显式联网验收 | ✅ 持续 |
 
@@ -62,7 +64,10 @@ uv run sai memory                # 查看持久记忆（识别结论缓存，sai
 uv run sai sessions && uv run sai replay 1   # 任务会话列表 + 回放一次任务的完整轨迹
 uv run sai eval                  # 识别能力评测（31 条真实考卷 + 基线防退化比对）
 uv run sai watch                 # 盯一次官网，新比赛推 webhook/邮件/文件（cron 接管定时）
-uv run sai serve                 # 启动 API 服务，访问 /health
+
+# Web 界面（可选）：构建前端后 sai serve 单端口直达
+cd frontend && npm install && npm run build
+uv run sai serve                 # http://127.0.0.1:8000 即是界面 + API
 uv run pytest                    # 跑测试（联网验收另跑 uv run pytest -m live）
 ```
 
@@ -81,6 +86,19 @@ uv run pytest                    # 跑测试（联网验收另跑 uv run pytest 
 | POST | `/study-path` | 生成备考路径（body: `{"competition": "CCF"}`，需密钥，耗时 40-90s） |
 
 密钥未配置时，LLM 相关接口返回 503 + 配置指引，其余接口照常可用。
+
+<details>
+<summary>📦 Web 界面一览（构建前端后 <code>uv run sai serve</code> 可用）</summary>
+
+| 视图 | 内容 |
+| --- | --- |
+| 工作台 | 问候语 + Overview 六统计（会话/消息/token/活跃天/高峰时段/常用模型）+ 18 周热力图 + 模型用量表——全部来自真实成本台账 |
+| 情报站 | 大字问候 + 居中输入卡 + 快捷点子（识别/生成/备考/账单一键执行） |
+| 会话 | 自由对话（逐字流式）+ 历史任务轨迹回放（工具调用折叠块） |
+| Settings | 亮暗主题/字号真切换；切模型档案、改预算（写回 config.yaml）；只读路由/权限/推送 |
+| 命令 | 输入框敲 `/`：/识别 /扫描 /生成 /备考 /账单 /报告 |
+
+</details>
 
 </details>
 
@@ -107,9 +125,9 @@ DDD 洋葱四层 + 装配根，依赖只能从外向内；所有外部能力（�
 
 ```mermaid
 flowchart TD
-    P[presentation 呈现层<br/>FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具 / 评测<br/>CostMeter 计价 / TaskRecorder 会话 / 权限门]
-    A --> D[domain 领域层<br/>实体 + 九个端口]
-    I[infrastructure 基础设施层<br/>爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档 / 推送] -. 实现端口 .-> D
+    P[presentation 呈现层<br/>React 前端 / FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具 / 评测<br/>CostMeter 计价 / TaskRecorder 会话 / 权限门]
+    A --> D[domain 领域层<br/>实体 + 十个端口]
+    I[infrastructure 基础设施层<br/>爬虫 / LLM 流式 / 存储 / 搜索 / 记忆 / 会话存档 / 推送] -. 实现端口 .-> D
     C[composition.py 装配根] -. 创建并注入实现 .-> P
 ```
 
@@ -137,9 +155,10 @@ src/contest_agent/
 ├── application/       # 用例（识别/生成/路径/盯梢/评测）+ AgentScope 接驳层
 │                      # + cost.py 计价 + recorder.py 会话记录 + permission_gate.py 权限门
 ├── infrastructure/    # 爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档 / 推送（实现端口）
-├── presentation/      # FastAPI server + sai CLI 薄壳
+├── presentation/      # FastAPI server（API + 前端托管） + sai CLI 薄壳
 ├── composition.py     # 装配根：唯一知道具体实现的地方
 └── settings.py        # 环境优先配置（env > config.yaml > 默认值）
+frontend/              # React 18 + Vite：复刻 Claude Desktop 的 Web 界面
 config.yaml            # 站点源 + 选择器 + 模型档案 + 推送通道 + 权限门名单
 skills/                # 技能文件（PPT 大纲 / 计划书 / 备考路径）
 tests/fixtures/        # 真实页面样本 + eval_identify.json 评测考卷（31 条真实通知）
@@ -160,7 +179,8 @@ docs/adr/              # 架构决策记录（ADR-001/002/003）
 - [x] **v2/M1** 成本台账（`sai cost`）+ 预算闸门 + 模型路由 + 上下文压缩（ADR-003）
 - [x] **v2/M2** 持久记忆（二次扫描 0 调用）+ 会话存档回放 + 评测套件（基线防退化）
 - [x] **v2/M3** 定时推送（cron + 三通道）+ 研究分身（子代理摘要）+ 权限门
-- [ ] **v2/M4** 前端（SSE 流式）/ python-pptx 真实文件 / 多校源 / 性能优化
+- [x] **v2/M4** Web 界面：复刻 Claude Desktop 三视图 + SSE 流式对话 + 真实台账面板
+- [ ] **v2/M4+** 前端深化（python-pptx 真实文件 / 会话内嵌识别结果 / 多轮上下文压缩）+ 多校源 + 性能优化
 
 ## 🎓 这也是一个学习项目
 

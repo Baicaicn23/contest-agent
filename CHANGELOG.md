@@ -4,6 +4,39 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — v2/M4 Web 界面（复刻 Claude Desktop）
+
+### 新增
+
+- **Web 界面**（frontend/，React 18 + Vite + 手写 CSS 设计令牌，中文本地化）：
+  - **工作台**：问候语 + Overview 卡（会话/消息/总 token/活跃天数/高峰时段/
+    常用模型六统计 + 18 周热力图 + 模型用量表 + 周对比趣味文案）——
+    全部来自新接口 `GET /api/usage/summary` 的真实台账聚合
+  - **情报站**：serif 大字问候 + 居中输入卡 + 点子列表（识别/生成/备考/账单一键执行）
+  - **会话视图**：自由对话（SSE 逐字流式）+ 历史任务轨迹回放
+    （M2 存档事件 → 右气泡/助手正文/工具折叠块；chat 会话可续聊）
+  - **Settings**：亮暗主题与字号真切换（CSS 变量 + localStorage）；
+    切模型档案、改预算上限（按行替换写回 config.yaml）；路由/权限/推送只读；
+    其余分区视觉占位
+  - **/ 命令面板**：/识别 /扫描 /生成 /备考 /账单 /报告
+- **后端**：`GET /api/usage/summary`（UsageReport 聚合用例）、
+  `POST /api/chat`（SSE 逐 token，人设注入实时数据 + 最近 6 轮上下文，
+  花费照常入台账）、`GET /api/config`（脱敏）、`POST /api/config/model|budget`、
+  `POST /identify`（P6 缺项补全）、FastAPI 托管 frontend/dist（sai serve 单端口）
+- **新端口**：ChatStreamPort（能力十：流式自由对话）
+
+### 变更
+
+- settings.set_budget：预算按行替换写回 config.yaml（保注释），env 覆盖依旧优先
+- 内存库 StaticPool 关闭跨线程检查（SSE 流式响应的工作线程需要）
+
+### 测试
+
+- 离线 133 项（M4 新增 16）+ live 4 项全绿
+- 浏览器真实验收（对照五张 Claude Desktop 原图）：三视图、Settings 弹窗、
+  用户菜单、暗色主题切换、Overview 真实数据、会话轨迹回放、
+  chat 逐字流式（人设注入的实时卡片数正确）、/账单命令执行
+
 ## [Unreleased] — v2/M3 定时推送 + 研究分身 + 权限门
 
 ### 新增
