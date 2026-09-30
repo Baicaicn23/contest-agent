@@ -43,6 +43,24 @@ def _format_digest(new_cards: list) -> tuple[str, str]:
     return title, content
 
 
+def push_via_channels(pushers: list[PushPort], title: str, content: str) -> list[dict]:
+    """把一条消息推给所有已启用通道，返回逐通道结果（M3/M4 共用）。
+
+    降级原则：一个通道挂了不拖累其他通道；失败结果如实上报给调用方。
+    WatchSite（新比赛）和 DeadlineSentinel（截止警报）共用这一份。
+    """
+    results = []
+    for pusher in pushers:
+        try:
+            pusher.send(title, content)
+            results.append({"channel": pusher.channel_name, "ok": True})
+        except Exception as error:
+            results.append(
+                {"channel": pusher.channel_name, "ok": False, "error": str(error)}
+            )
+    return results
+
+
 class WatchSite:
     """盯一次官网：识别 -> 找新面孔 -> 推送（有配置的通道全推一遍）。"""
 
@@ -62,12 +80,5 @@ class WatchSite:
         title, content = _format_digest(result.new_cards)
         # 逐通道推送；一个通道挂了不拖累其他通道（降级原则：
         # webhook 挂了，邮件和文件照发），失败结果照样汇报给调用方
-        for pusher in self.pushers:
-            try:
-                pusher.send(title, content)
-                result.push_results.append({"channel": pusher.channel_name, "ok": True})
-            except Exception as error:
-                result.push_results.append(
-                    {"channel": pusher.channel_name, "ok": False, "error": str(error)}
-                )
+        result.push_results = push_via_channels(self.pushers, title, content)
         return result

@@ -55,6 +55,7 @@ class Usecases:
     sessions: SessionReport | None = None
     usage_report: UsageReport | None = None
     chat: ChatService | None = None
+    deadline: "object | None" = None  # DeadlineSentinel（鸭子类型，避免跨层 import）
     generate_material: GenerateMaterial | None = None
     study_path: PlanStudyPath | None = None
 
@@ -460,6 +461,30 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
             raise HTTPException(503, "对话未装配")
         usecases.chat.close_session(req.session_id)
         return {"closed": req.session_id}
+
+    @app.get("/api/deadlines")
+    def deadlines() -> dict:
+        """临近截止的比赛列表（M4 截止守望的只读视图，30 天窗口）。"""
+        if usecases is None or usecases.deadline is None:
+            raise HTTPException(503, "截止守望未装配")
+        report = usecases.deadline.execute(push=False)  # 只读：不推送不记账
+        return {
+            "count": len(report.upcoming),
+            "expired": report.expired,
+            "deadlines": [
+                {
+                    "name": a.card.name,
+                    "type": a.card.type,
+                    "deadline": (a.card.deadline.date().isoformat()
+                                 if a.card.deadline else None),
+                    "remaining": a.remaining,
+                    "label": a.label,
+                    "urgent": a.remaining <= 1,
+                    "url": a.url,
+                }
+                for a in report.upcoming
+            ],
+        }
 
     # ---------- 前端静态托管：构建产物存在才挂载，`sai serve` 单端口全搞定 ----------
 

@@ -24,6 +24,7 @@ from .application.cost import CostMeter
 from .application.recorder import TaskRecorder
 from .application.usecases.chat_service import ChatService
 from .application.usecases.cost_report import CostReport
+from .application.usecases.deadline_watch import DeadlineSentinel
 from .application.usecases.evaluate_identification import EvaluateIdentification
 from .application.usecases.generate_material import GenerateMaterial
 from .application.usecases.generate_report import GenerateReport
@@ -55,6 +56,7 @@ __all__ = [
     "build_competition_repository",
     "build_cost_meter",
     "build_cost_report_usecase",
+    "build_deadline_sentinel",
     "build_eval_usecase",
     "build_generate_material_usecase",
     "build_identify_usecase",
@@ -281,6 +283,21 @@ def build_eval_usecase(dataset_path=None) -> EvaluateIdentification:
     return EvaluateIdentification(llm=llm, dataset_path=dataset_path, meter=meter)
 
 
+def build_deadline_sentinel(pushers: list | None = None) -> DeadlineSentinel:
+    """组装截止日期守望哨兵（M4 差异化①）：扫描卡片 deadline、四档倒计时警报。
+
+    pushers 不传 = 按 config 启用的通道；API 只读列表场景传空列表。
+    """
+    settings = load_settings_or_raise()
+    return DeadlineSentinel(
+        competition_repository=build_competition_repository(),
+        memory=build_memory_repository(),
+        pushers=(
+            build_pushers(settings.yaml_config.push) if pushers is None else pushers
+        ),
+    )
+
+
 def build_watch_usecase(note: str = "") -> WatchSite:
     """组装 watch 用例（M3 定时推送）：识别 + 所有已启用的推送通道。
 
@@ -437,6 +454,7 @@ def build_usecases() -> Usecases:
         sessions=build_session_report_usecase(),
         usage_report=build_usage_report_usecase(),
         chat=chat_service,
+        deadline=build_deadline_sentinel(pushers=[]),
         generate_material=(
             GenerateMaterial(
                 profile=generate_profile,

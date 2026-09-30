@@ -122,6 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--interval", type=int, default=1800,
                        help="loop 模式的间隔秒数（默认 1800 = 半小时）")
 
+    # 子命令十一：sai deadlines（M4：列出临近截止的比赛）
+    sub.add_parser("deadlines", help="列出未来 30 天内截止的比赛（只读，不推送）")
+
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
     model.add_argument("action", nargs="?", default="list", choices=["list", "use"])
@@ -641,9 +644,10 @@ def _run_watch_once(args: argparse.Namespace) -> int:
 
 
 def _watch_round(args: argparse.Namespace) -> int:
-    """盯一轮：识别 -> 有新比赛就推送 -> 播报结果。"""
-    from ..composition import build_watch_usecase
+    """盯一轮：识别推送新比赛 + 截止守望，返回进程退出码。"""
+    from ..composition import build_deadline_sentinel, build_watch_usecase
 
+    exit_code = 0
     try:
         usecase = build_watch_usecase(note=f"limit={args.limit}")
         result = usecase.execute(limit=args.limit, push=not args.no_push)
@@ -665,21 +669,58 @@ def _watch_round(args: argparse.Namespace) -> int:
 
     if args.no_push:
         return 0
-    if not result.push_results:
-        if result.new_cards:
-            print("（config.yaml 的 push 段没有启用任何通道，本轮只在终端播报。"
-                  "配 webhook/file/smtp 后即可外推）")
+    if result.push_results:
+        print("\n新比赛推送结果：")
+        for r in result.push_results:
+            mark = "✅" if r["ok"] else "❌"
+            print(f"  {mark} {r['channel']}")
+            if not r["ok"]:
+                exit_code = 1
+                print(f"     {r.get('error', '')}")
+
+    # 截止守望：时间驱动的另一半（T-7/3/1/0 四档，记忆去重）
+    sentinel = build_deadline_sentinel()
+    report = sentinel.execute(push=not args.no_push)
+    if report.alerts:
+        print(f"\n⏰ 截止提醒 {len(report.alerts)} 条：")
+        for alert in report.alerts:
+            print(f"  - {alert.label}｜{alert.card.name}")
+        if report.push_results:
+            for r in report.push_results:
+                mark = "✅" if r["ok"] else "❌"
+                print(f"  {mark} 推送通道 {r['channel']}")
+                if not r["ok"]:
+                    exit_code = 1
+    if report.expired:
+        print(f"\n（{report.expired} 场比赛已过截止日期，自动停报）")
+
+    return exit_code
+
+
+def _run_deadlines(args: argparse.Namespace) -> int:
+    """执行 sai deadlines：列出未来 30 天内截止的比赛（M4 差异化①）。
+
+    只读视图：不推送、不消耗警报档位。真正的提醒走 sai watch / cron。
+    """
+    from ..composition import build_deadline_sentinel
+
+    sentinel = build_deadline_sentinel()
+    report = sentinel.execute(push=False)
+
+    if report.expired:
+        print(f"（{report.expired} 场比赛已过截止日期，自动停报）\n")
+
+    if not report.upcoming:
+        print("未来 30 天没有临近截止的比赛。")
         return 0
 
-    print("\n推送结果：")
-    failed = False
-    for r in result.push_results:
-        mark = "✅" if r["ok"] else "❌"
-        print(f"  {mark} {r['channel']}")
-        if not r["ok"]:
-            failed = True
-            print(f"     {r.get('error', '')}")
-    return 1 if failed else 0
+    print(f"未来 30 天内截止的比赛（{len(report.upcoming)} 场）：\n")
+    for alert in report.upcoming:
+        deadline_str = alert.card.deadline.strftime("%Y-%m-%d")
+        print(f"  {alert.label}｜{alert.card.name}")
+        print(f"     截止 {deadline_str} ｜ {alert.url}")
+    print("\n提醒由 sai watch / cron 自动推送（T-7/3/1/0 四档）。")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -754,6 +795,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "watch":
         return _run_watch_once(args)
+
+    if args.command == "deadlines":
+        return _run_deadlines(args)
 
     if args.command == "serve":
         # uvicorn 是 FastAPI 官方配套的 Web 服务器，负责真正监听端口、处理 HTTP

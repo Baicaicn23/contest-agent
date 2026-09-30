@@ -44,7 +44,8 @@ uv run pytest               # 133 项测试，离线不花钱
 - 📝 **出材料**：生成 PPT 大纲并直接导出 **.pptx 文件**、参赛计划书、带真实引用的备考路径
 - 💰 **管成本**：每次 LLM 调用记 token 与费用，预算超限自动熔断，按任务路由便宜/昂贵模型
 - ♻️ **有记性**：判过的通知直接命中记忆——二次扫描 0 次调用；31 条真实考卷防识别质量退化
-- ⏰ **会值班**：`sai watch` + cron 定时盯官网，新比赛推 webhook / 邮件 / 文件
+- ⏰ **会值班**：`sai watch` + cron 定时盯官网，新比赛推 webhook / 邮件 / 文件；
+  截止守望 **T-7/3/1/0 四档倒计时警报**，过期自动停报——别的 agent 不会每天替你看截止日期
 - 🖥️ **Web 界面**：复刻 Claude Desktop 的三视图——真实台账面板、逐字流式对话、轨迹回放、亮暗主题
 
 <details>
@@ -59,9 +60,10 @@ uv run pytest               # 133 项测试，离线不花钱
 | `sai cost [--task 名] [--today]` | 成本台账：按任务/模型/日期汇总 |
 | `sai memory` / `sai sessions` / `sai replay 编号` | 记忆查看 / 会话列表 / 轨迹回放 |
 | `sai eval` | 31 条真实考卷评测，防识别质量退化 |
+| `sai deadlines` | 列出未来 30 天内截止的比赛（T-7/3/1/0 四档提醒由 watch 自动推送） |
 | `sai serve` | 启动 Web 界面 + API |
 
-HTTP 接口：`/health` `/scan` `/identify` `/competitions` `/report` `/cost` `/sessions/{id}` `/generate` `/study-path` `/api/chat`（SSE）`/api/usage/summary` `/api/config`
+HTTP 接口：`/health` `/scan` `/identify` `/competitions` `/report` `/cost` `/sessions/{id}` `/generate` `/study-path` `/api/chat`（SSE）`/api/usage/summary` `/api/config` `/api/deadlines`
 
 </details>
 
@@ -105,6 +107,7 @@ docs/adr/              # 架构决策记录（ADR-001/002/003）
 - [x] **v1** 完整闭环：盯官网 → 识别 → 材料/路径 → 发布（P0-P6）
 - [x] **v2/M1-M3** 成本台账 + 上下文压缩 · 记忆 + 会话回放 + 评测 · 推送 + 子代理 + 权限门
 - [x] **v2/M4** Web 界面（React 复刻 Claude Desktop）
+- [x] **v2/M4+** 截止日期守望：T-7/3/1/0 四档倒计时警报（时间驱动的差异化方向）
 - [ ] **下一批** python-pptx 真实文件 · 多校源 · 并行识别与抓取缓存
 
 ## 🎓 也是一个学习项目

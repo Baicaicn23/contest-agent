@@ -8,6 +8,10 @@
 
 ### 新增
 
+- **截止日期守望（Deadline Sentinel）**：卡片 deadline 字段的四档倒计时警报
+  （T-7/3/1/0 天；记忆去重同档不重吵；窗口内晚添加立即补发；过期自动停报；
+  推送全挂不记账、下轮重试）；`sai watch` 一轮同时推新比赛与截止警报；
+  `sai deadlines` 只读列表 + `GET /api/deadlines` + 情报站首页截止临近卡
 - **生成材料导出真 .pptx**：`sai generate --skill ppt-outline`（及前端 /生成、
   POST /generate）在大纲落盘后自动经"LLM 结构化整理 → python-pptx 渲染"
   产出 16:9 幻灯片文件；铁律只排版不改写（标题要点全来自大纲原文）；
