@@ -116,6 +116,18 @@ class PushConfig(BaseModel):
     smtp: SmtpConfig | None = None     # 邮件通道；None = 不启用
 
 
+class PermissionConfig(BaseModel):
+    """工具权限门的配置（M3）。两个名单都是空 = 所有工具照旧自动放行。
+
+    - confirm_tools：交互模式（终端有人）下，执行前要 y/N 确认的工具名；
+    - unattended_deny_tools：无人值守（cron / sai watch / HTTP 服务）时
+      一律拒绝的工具名——拒绝理由会回给模型，让它换路走。
+    """
+
+    confirm_tools: list[str] = Field(default_factory=list)
+    unattended_deny_tools: list[str] = Field(default_factory=list)
+
+
 class YamlConfig(BaseModel):
     """config.yaml 整个文件的结构化映射：yaml 长什么样，这里就定义成什么样。"""
 
@@ -130,6 +142,7 @@ class YamlConfig(BaseModel):
     budget_per_task_yuan: float | None = None  # 单任务预算上限（元）；None = 不限
     context: ContextSettings = ContextSettings()  # agent 循环的上下文压缩阈值
     push: PushConfig = PushConfig()        # 推送通道（M3 定时推送用，默认全关）
+    permissions: PermissionConfig = PermissionConfig()  # 工具权限门（M3，默认全放行）
 
 
 class Settings(BaseModel):

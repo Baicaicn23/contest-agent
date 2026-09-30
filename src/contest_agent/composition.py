@@ -60,6 +60,7 @@ __all__ = [
     "build_memory_repository",
     "build_notice_repository",
     "build_notice_source",
+    "build_permission_gate",
     "build_plan_study_path_usecase",
     "build_report_usecase",
     "build_scan_usecase",
@@ -124,6 +125,21 @@ def build_session_repository() -> SqliteSessionRepository:
 def build_task_recorder(task_type: str, note: str = "") -> TaskRecorder:
     """开一个新任务会话并返回记录器（M2）。CLI 每次跑任务时调一次。"""
     return TaskRecorder(build_session_repository(), task_type, note)
+
+
+def build_permission_gate():
+    """组装权限门（M3）：两个名单来自 config.yaml 的 permissions 段。
+
+    interactive 不传 = 自动探测（stdin 连着终端才算有人）。
+    """
+    from .application.harness.permission_gate import PermissionGate
+
+    settings = load_settings_or_raise()
+    perms = settings.yaml_config.permissions
+    return PermissionGate(
+        confirm_tools=perms.confirm_tools,
+        unattended_deny_tools=perms.unattended_deny_tools,
+    )
 
 
 def build_cost_meter(
@@ -282,6 +298,7 @@ def build_generate_material_usecase(output_dir: Path | None = None, note: str = 
                                session_id=recorder.session_id),
         context_config=_build_context_config(),
         recorder=recorder,
+        gate=build_permission_gate(),
     )
 
 
@@ -312,6 +329,7 @@ def build_plan_study_path_usecase(output_dir: Path | None = None, note: str = ""
         context_config=_build_context_config(),
         recorder=recorder,
         digest_llm=digest_llm,
+        gate=build_permission_gate(),
     )
 
 

@@ -229,13 +229,19 @@ def _with_recording(func: Callable[..., str], recorder) -> Callable[..., str]:
     return wrapper
 
 
-async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None) -> None:
-    """注册工具的统一入口：先套截断外壳、再套记录外壳，最后授权挂进工具箱。
+async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None, gate=None) -> None:
+    """注册工具的统一入口：按序套壳，最后以无人值守授权挂进工具箱。
 
-    所有工具都从这里过，保证"统一截断"一个都不漏——
+    壳的顺序（从里到外）：截断 -> 权限门 -> 会话记录。
+    - 权限门在截断之外：拒绝时短路，原函数和截断都不执行；
+    - 记录在最外：模型实际收到的东西（含权限门的拒绝理由）都进轨迹，
+      回放时看得到"模型被拦了"。
+    所有工具都从这里过，保证壳一个不漏——
     如果各处直接调 toolkit.add_tool，很快就会有人忘了包外壳。
     """
     wrapped = _with_truncation(func)
+    if gate is not None:
+        wrapped = gate.wrap(wrapped)
     if recorder is not None:
         wrapped = _with_recording(wrapped, recorder)
     await toolkit.add_tool(FunctionTool(func=wrapped, permission=ALLOWED))
@@ -270,6 +276,7 @@ async def build_material_tools(
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
     recorder=None,
+    gate=None,
 ) -> MaterialTools:
     """把三件工具注册进 AgentScope 的 Toolkit（异步：框架要求）。
 
@@ -277,6 +284,7 @@ async def build_material_tools(
     类型标注提取，所以注释写得越清楚，模型用得越准。
     trace 列表由各闭包写入，跑完后供 CLI 播报"agent 干了什么"。
     recorder 不为 None 时，每次工具调用还会写一条会话事件（M2）。
+    gate 不为 None 时，名单内的工具过权限门（M3）。
     """
     tools = MaterialTools(toolkit=Toolkit())
 
@@ -311,8 +319,8 @@ async def build_material_tools(
         "save_material": save_material,
     }
     for func in functions.values():
-        # 统一入口注册：套截断外壳 + 记录外壳 + 无人值守授权（见 _add_tool 注释）
-        await _add_tool(tools.toolkit, func, recorder)
+        # 统一入口注册：截断壳 + 权限门 + 记录壳 + 无人值守授权（见 _add_tool 注释）
+        await _add_tool(tools.toolkit, func, recorder, gate)
     tools.functions = functions
     return tools
 
@@ -323,6 +331,7 @@ async def build_study_tools(
     output_dir: Path,
     recorder=None,
     digest_llm=None,
+    gate=None,
 ) -> MaterialTools:
     """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。
 
@@ -414,7 +423,7 @@ async def build_study_tools(
         "list_competitions": list_competitions,
     }
     for func in functions.values():
-        await _add_tool(tools.toolkit, func, recorder)
+        await _add_tool(tools.toolkit, func, recorder, gate)
     tools.functions = functions
     return tools
 

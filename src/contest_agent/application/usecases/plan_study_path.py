@@ -83,6 +83,7 @@ class PlanStudyPath:
         context_config=None,
         recorder=None,
         digest_llm=None,
+        gate=None,
     ):
         self.profile = profile
         self.search = search
@@ -92,12 +93,12 @@ class PlanStudyPath:
         self.max_verify_rounds = max_verify_rounds
         # runner 可注入：生产用 AgentScope 门面，测试用假 runner
         self.runner = runner or run_material_generation
-        # M1/M2/M3 可选注入：计价器、上下文压缩配置、会话记录器、研究分身的
-        # LLM 客户端（digest_llm 与主循环共用同一个 CostMeter，花费合并算账）
+        # M1/M2/M3 可选注入：计价器、压缩配置、会话记录器、研究分身 LLM、权限门
         self.meter = meter
         self.context_config = context_config
         self.recorder = recorder
         self.digest_llm = digest_llm
+        self.gate = gate
 
     def execute(self, competition_name: str | None = None) -> StudyPathResult:
         """生成备考路径并校验引用；有死链自动反馈重做一轮。
@@ -156,6 +157,7 @@ class PlanStudyPath:
                     output_dir=self.output_dir,
                     recorder=self.recorder,
                     digest_llm=self.digest_llm,
+                    gate=self.gate,
                 )
 
             outcome, tools = self.runner(
