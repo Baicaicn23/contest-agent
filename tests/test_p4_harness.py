@@ -120,6 +120,46 @@ def test_loop_executes_tool_then_finishes() -> None:
     assert "回声：你好" in second_history[3]["content"]
 
 
+def test_loop_executes_parallel_tools_concurrently() -> None:
+    """性能验收：同轮多个工具调用并行执行，总耗时接近最慢的那个而非相加。"""
+    import time
+
+    def slow_a() -> str:
+        time.sleep(0.5)
+        return "A 完成"
+
+    def slow_b() -> str:
+        time.sleep(0.5)
+        return "B 完成"
+
+    registry = ToolRegistry()
+    registry.register(Tool("slow_a", "慢工具A", {"type": "object"}, func=slow_a))
+    registry.register(Tool("slow_b", "慢工具B", {"type": "object"}, func=slow_b))
+
+    llm = FakeLlm(
+        replies=[
+            LlmReply(
+                tool_calls=[
+                    ToolCall(id="c1", name="slow_a", arguments={}),
+                    ToolCall(id="c2", name="slow_b", arguments={}),
+                ]
+            ),
+            LlmReply(content="完成"),
+        ]
+    )
+
+    start = time.monotonic()
+    result = AgentRunner(llm, registry, system_prompt="测试").run("跑")
+    elapsed = time.monotonic() - start
+
+    assert result.success is True
+    # 串行执行必然 >= 1.0 秒；并行应接近 0.5 秒。放宽到 0.9 防慢机器抖动误报
+    assert elapsed < 0.9
+    # 并行不乱序：结果仍按发起顺序与 tool_call_id 配对回填
+    assert result.steps[0].tool_calls[0]["result"] == "A 完成"
+    assert result.steps[0].tool_calls[1]["result"] == "B 完成"
+
+
 def test_loop_feeds_tool_error_back_to_model() -> None:
     """工具报错不崩循环：错误文本作为工具结果回传，模型继续。"""
 

@@ -21,6 +21,7 @@ ReAct = Reasoning + Acting：模型思考下一步 -> 调工具 -> 看结果 -> 
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from ...domain.entities import LlmReply
@@ -108,13 +109,23 @@ class AgentRunner:
                 }
             )
 
+            # 并行执行这一轮的全部工具调用。
+            # 模型一轮可能同时要多个工具（P4 真实运行的步骤 1 就同时发了
+            # 查库 + 爬虫两个请求）：串行执行耗时是"相加"，并行是"取最大"。
+            # 这就是框架默认给的性能特性之一，这里用 5 行线程池补平。
+            with ThreadPoolExecutor(max_workers=len(reply.tool_calls)) as pool:
+                futures = [
+                    pool.submit(self.registry.call, call.name, call.arguments)
+                    for call in reply.tool_calls
+                ]
+                results = [future.result() for future in futures]
+
+            # 结果按发起顺序回填（协议要求每个 tool_call_id 一条 tool 消息，
+            # zip 保证第 i 个结果配第 i 个调用，不会张冠李戴）
             step_record = AgentStep(
                 step=step_number, assistant_content=reply.content
             )
-
-            # 逐个执行工具，结果以 role=tool 追加回历史，供模型下一轮阅读
-            for call in reply.tool_calls:
-                result = self.registry.call(call.name, call.arguments)
+            for call, result in zip(reply.tool_calls, results):
                 messages.append(
                     {"role": "tool", "tool_call_id": call.id, "content": result}
                 )
