@@ -1,199 +1,28 @@
-"""P4 验收测试：注册表、ReAct 循环、技能加载、材料落盘，全程假 LLM 零成本。
+"""P4 验收测试（v1.5，AgentScope 迁移后）。
 
-测试的核心是"循环编排对不对"：
-- 模型发起工具调用 -> 工具真的被执行 -> 结果回传 -> 模型收尾；
-- 工具报错不会崩循环（错误文本回传给模型）；
-- 步数耗尽会强制停车并如实报告失败。
-真实联网生成材料的集成测试在文件末尾，标 live，默认不跑。
+迁移后测试对象随之调整：
+- 循环本体（ReAct 编排）由 AgentScope 框架负责，框架的代码框架自己测，
+  我们不再重复测——这是用框架的正常代价与收益；
+- 我们仍然要测的是"接驳层胶水"：工具函数行为对不对（落盘/防穿越/容错）、
+  用例编排对不对（提示词拼装、选卡、结果映射）；
+- 真实联网生成材料放 live 测试，默认不跑。
 """
 
+import asyncio
+import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-import os
-
-from contest_agent.application.harness.loop import AgentRunner
-from contest_agent.application.harness.registry import Tool, ToolRegistry
+from contest_agent.application.harness.agent_factory import (
+    AgentOutcome,
+    MaterialTools,
+    build_material_tools,
+)
 from contest_agent.application.harness.skills import list_skills, load_skill
 from contest_agent.application.usecases.generate_material import GenerateMaterial
-from contest_agent.domain.entities import LlmReply, ToolCall
-
-
-# ---------- 假对象 ----------
-
-
-class FakeLlm:
-    """剧本式假 LLM：按预设顺序吐 LlmReply，并记录每次收到的完整消息历史。"""
-
-    def __init__(self, replies: list[LlmReply]) -> None:
-        self._replies = list(replies)
-        self.histories: list[list[dict]] = []
-
-    def chat_with_tools(self, messages: list[dict], tools: list[dict]) -> LlmReply:
-        self.histories.append([dict(m) for m in messages])  # 拷贝存档
-        return self._replies.pop(0)
-
-    def complete_structured(self, system: str, user: str, schema: dict) -> dict:
-        raise AssertionError("循环引擎不该调用 complete_structured")
-
-
-# ---------- 工具注册表 ----------
-
-
-def test_registry_translates_to_openai_schema() -> None:
-    registry = ToolRegistry()
-    registry.register(
-        Tool(
-            name="echo",
-            description="原样返回文本",
-            parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-            func=lambda text: text,
-        )
-    )
-
-    schemas = registry.openai_schemas()
-    assert len(schemas) == 1
-    assert schemas[0]["type"] == "function"
-    assert schemas[0]["function"]["name"] == "echo"
-    assert schemas[0]["function"]["parameters"]["required"] == ["text"]
-
-
-def test_registry_call_executes_and_returns_string() -> None:
-    registry = ToolRegistry()
-    registry.register(Tool("add", "加法", {"type": "object"}, func=lambda a=0, b=0: str(a + b)))
-
-    assert registry.call("add", {"a": 1, "b": 2}) == "3"
-
-
-def test_registry_unknown_tool_returns_error_text() -> None:
-    registry = ToolRegistry()
-    result = registry.call("不存在的工具", {})
-
-    # 关键行为：不抛异常，返回错误文本（给模型看并自行纠正）
-    assert "不存在" in result and "可用工具" in result
-
-
-def test_registry_tool_crash_returns_error_text() -> None:
-    def boom() -> str:
-        raise ValueError("数据库炸了")
-
-    registry = ToolRegistry()
-    registry.register(Tool("boom", "会炸的工具", {"type": "object"}, func=boom))
-
-    result = registry.call("boom", {})
-    assert "工具执行出错" in result and "数据库炸了" in result
-
-
-# ---------- ReAct 循环 ----------
-
-
-def test_loop_executes_tool_then_finishes() -> None:
-    """剧本：第一轮调工具，第二轮收尾。验证消息协议与结果组装。"""
-    llm = FakeLlm(
-        replies=[
-            # 第一轮：模型要调工具
-            LlmReply(
-                content=None,
-                tool_calls=[ToolCall(id="call-1", name="echo", arguments={"text": "你好"})],
-            ),
-            # 第二轮：模型看到工具结果后收尾
-            LlmReply(content="任务完成", tool_calls=[]),
-        ]
-    )
-    registry = ToolRegistry()
-    registry.register(Tool("echo", "原样返回", {"type": "object"}, func=lambda text: f"回声：{text}"))
-
-    result = AgentRunner(llm, registry, system_prompt="测试").run("跑一次")
-
-    assert result.success is True
-    assert result.final_text == "任务完成"
-    assert len(result.steps) == 2
-    assert result.steps[0].tool_calls[0]["result"] == "回声：你好"
-
-    # 消息协议：第二轮请求的历史里，应该有 assistant(tool_calls) 和 tool 结果
-    second_history = llm.histories[1]
-    roles = [m["role"] for m in second_history]
-    assert roles == ["system", "user", "assistant", "tool"]
-    assert second_history[2]["tool_calls"][0]["id"] == "call-1"
-    assert second_history[3]["tool_call_id"] == "call-1"
-    assert "回声：你好" in second_history[3]["content"]
-
-
-def test_loop_executes_parallel_tools_concurrently() -> None:
-    """性能验收：同轮多个工具调用并行执行，总耗时接近最慢的那个而非相加。"""
-    import time
-
-    def slow_a() -> str:
-        time.sleep(0.5)
-        return "A 完成"
-
-    def slow_b() -> str:
-        time.sleep(0.5)
-        return "B 完成"
-
-    registry = ToolRegistry()
-    registry.register(Tool("slow_a", "慢工具A", {"type": "object"}, func=slow_a))
-    registry.register(Tool("slow_b", "慢工具B", {"type": "object"}, func=slow_b))
-
-    llm = FakeLlm(
-        replies=[
-            LlmReply(
-                tool_calls=[
-                    ToolCall(id="c1", name="slow_a", arguments={}),
-                    ToolCall(id="c2", name="slow_b", arguments={}),
-                ]
-            ),
-            LlmReply(content="完成"),
-        ]
-    )
-
-    start = time.monotonic()
-    result = AgentRunner(llm, registry, system_prompt="测试").run("跑")
-    elapsed = time.monotonic() - start
-
-    assert result.success is True
-    # 串行执行必然 >= 1.0 秒；并行应接近 0.5 秒。放宽到 0.9 防慢机器抖动误报
-    assert elapsed < 0.9
-    # 并行不乱序：结果仍按发起顺序与 tool_call_id 配对回填
-    assert result.steps[0].tool_calls[0]["result"] == "A 完成"
-    assert result.steps[0].tool_calls[1]["result"] == "B 完成"
-
-
-def test_loop_feeds_tool_error_back_to_model() -> None:
-    """工具报错不崩循环：错误文本作为工具结果回传，模型继续。"""
-
-    def boom() -> str:
-        raise ValueError("坏了")
-
-    registry = ToolRegistry()
-    registry.register(Tool("boom", "会炸", {"type": "object"}, func=boom))
-
-    llm = FakeLlm(
-        replies=[
-            LlmReply(tool_calls=[ToolCall(id="c1", name="boom", arguments={})]),
-            LlmReply(content="看到报错了，已放弃该方案"),
-        ]
-    )
-    result = AgentRunner(llm, registry, system_prompt="测试").run("跑")
-
-    assert result.success is True
-    assert "坏了" in llm.histories[1][3]["content"]  # 错误原文被模型看到
-
-
-def test_loop_stops_at_max_steps() -> None:
-    """防呆验收：模型无限调工具时，到站强制停车并如实报告失败。"""
-    registry = ToolRegistry()
-    registry.register(Tool("noop", "空操作", {"type": "object"}, func=lambda: "ok"))
-    # 无限剧本：永远要调工具（pop 空了就重复最后一个）
-    endless = LlmReply(tool_calls=[ToolCall(id="x", name="noop", arguments={})])
-    llm = FakeLlm(replies=[endless] * 10)
-
-    result = AgentRunner(llm, registry, system_prompt="测试", max_steps=3).run("跑")
-
-    assert result.success is False
-    assert len(result.steps) == 3
-    assert "最大步数" in result.final_text
+from contest_agent.domain.entities import Competition, Notice
 
 
 # ---------- 技能加载 ----------
@@ -212,63 +41,154 @@ def test_load_missing_skill_lists_available() -> None:
         load_skill("不存在的技能")
 
 
-# ---------- 材料生成用例（假 LLM + 真工具 + 临时输出目录） ----------
+# ---------- 工具接驳层（Toolkit 注册 + 原函数行为） ----------
+
+
+@pytest.fixture
+def material_tools(tmp_path: Path) -> MaterialTools:
+    """构建真实的工具箱：假爬虫 + 假仓储 + 临时输出目录。"""
+    class FakeCrawler:
+        def fetch_detail(self, notice: Notice) -> Notice:
+            notice.content = "比赛通知正文：评审重点是创新性。"
+            return notice
+
+    class FakeRepository:
+        def list_all(self) -> list[Competition]:
+            return []  # 空库场景由用例层测试覆盖，这里专注工具行为
+
+    return asyncio.run(
+        build_material_tools(FakeCrawler(), FakeRepository(), tmp_path)
+    )
+
+
+def test_tools_registered_into_toolkit(material_tools: MaterialTools) -> None:
+    """三件工具都注册进了 AgentScope 的 Toolkit，且带上了说明书。"""
+    schemas = asyncio.run(material_tools.toolkit.get_tool_schemas())
+    names = {s["function"]["name"] for s in schemas}
+
+    assert names == {"list_competitions", "get_notice_content", "save_material"}
+    for schema in schemas:
+        assert schema["function"]["description"]  # 说明书来自 docstring，不能为空
+
+
+def test_save_material_tool_writes_file(material_tools: MaterialTools, tmp_path: Path) -> None:
+    result = material_tools.functions["save_material"](
+        filename="ppt-outline.md", content="# 大纲\n第一页"
+    )
+
+    assert "已保存" in result
+    assert (tmp_path / "ppt-outline.md").read_text(encoding="utf-8") == "# 大纲\n第一页"
+    assert any("save_material" in line for line in material_tools.trace)  # 轨迹被记录
+
+
+def test_save_material_rejects_path_traversal(material_tools: MaterialTools) -> None:
+    result = material_tools.functions["save_material"](
+        filename="../evil.md", content="恶意内容"
+    )
+
+    assert "不能包含路径" in result  # 返回错误文本给模型，而不是抛异常
+
+
+def test_save_material_rejects_non_markdown(material_tools: MaterialTools) -> None:
+    result = material_tools.functions["save_material"](
+        filename="report.exe", content="..."
+    )
+
+    assert ".md" in result
+
+
+def test_get_notice_content_returns_crawler_text(
+    material_tools: MaterialTools,
+) -> None:
+    result = material_tools.functions["get_notice_content"](
+        notice_url="https://x.edu.cn/n1"
+    )
+
+    assert "评审重点是创新性" in result
+
+
+def test_list_competitions_empty_gives_hint(material_tools: MaterialTools) -> None:
+    result = material_tools.functions["list_competitions"]()
+
+    assert "sai identify" in result  # 空库时给模型可传达的提示
+
+
+# ---------- 用例编排（假 runner，不碰框架和网络） ----------
 
 
 class FakeRepository:
-    """内存卡片仓储（只含用例用到的 list_all）。"""
-
-    def list_all(self) -> list:
-        from contest_agent.domain.entities import Competition
-
+    def list_all(self) -> list[Competition]:
         return [
             Competition(
-                name="数媒竞赛", notice_url="https://x.edu.cn/n1", type="deliverable"
+                name="数媒竞赛",
+                notice_url="https://x.edu.cn/n1",
+                type="deliverable",
+                deadline=datetime(2026, 10, 23),
             )
         ]
 
-    def save_if_absent(self, competition) -> bool:  # pragma: no cover — 本文件不测
-        return True
-
 
 class FakeCrawler:
-    """假爬虫：fetch_detail 返回固定正文。"""
-
-    def fetch_detail(self, notice):
-        notice.content = "比赛通知正文：评审重点是创新性。"
+    def fetch_detail(self, notice: Notice) -> Notice:
         return notice
 
 
-def test_generate_material_writes_file(tmp_path: Path) -> None:
-    llm = FakeLlm(
-        replies=[
-            LlmReply(
-                tool_calls=[
-                    ToolCall(
-                        id="c1",
-                        name="save_material",
-                        arguments={"filename": "ppt-outline.md", "content": "# 大纲\n第一页"},
-                    )
-                ]
-            ),
-            LlmReply(content="大纲已保存到 ppt-outline.md"),
-        ]
+class FakeRunner:
+    """假 runner：记录收到的装配参数，返回预设结果。"""
+
+    def __init__(self, outcome: AgentOutcome) -> None:
+        self.outcome = outcome
+        self.kwargs: dict = {}
+
+    def __call__(self, **kwargs) -> tuple[AgentOutcome, MaterialTools]:
+        self.kwargs = kwargs
+        return self.outcome, MaterialTools(toolkit=None, trace=["list_competitions()"])  # type: ignore[arg-type]
+
+
+def test_generate_material_orchestrates_prompt_and_result(tmp_path: Path) -> None:
+    """编排验收：提示词拼装正确、结果字段映射正确、轨迹透传。"""
+    runner = FakeRunner(
+        outcome=AgentOutcome(final_text="大纲已生成", error=None)
     )
     usecase = GenerateMaterial(
-        llm=llm,
+        profile=None,  # type: ignore[arg-type] — 假 runner 不会真用档案
         source=FakeCrawler(),
         competition_repository=FakeRepository(),
         output_dir=tmp_path,
+        runner=runner,
     )
 
     result = usecase.execute(skill_name="ppt-outline")
 
+    # 提示词装配：系统提示 = 基础守则 + 技能指令；用户消息带齐卡片信息
+    assert "工作守则" in runner.kwargs["system_prompt"]
+    assert "save_material" in runner.kwargs["system_prompt"]
+    assert "数媒竞赛" in runner.kwargs["user_request"]
+    assert "2026-10-23" in runner.kwargs["user_request"]
+
+    # 结果映射
     assert result.success is True
+    assert result.final_text == "大纲已生成"
     assert result.competition_name == "数媒竞赛"
-    assert any("save_material" in line for line in result.tool_trace)  # 轨迹可播报
-    written = tmp_path / "ppt-outline.md"
-    assert written.exists()
-    assert "# 大纲" in written.read_text(encoding="utf-8")
+    assert result.tool_trace == ["list_competitions()"]  # 轨迹透传给 CLI 播报
+
+
+def test_generate_material_surfaces_error(tmp_path: Path) -> None:
+    runner = FakeRunner(
+        outcome=AgentOutcome(final_text="任务中断", error="已达最大迭代次数")
+    )
+    usecase = GenerateMaterial(
+        profile=None,  # type: ignore[arg-type]
+        source=FakeCrawler(),
+        competition_repository=FakeRepository(),
+        output_dir=tmp_path,
+        runner=runner,
+    )
+
+    result = usecase.execute(skill_name="proposal")
+
+    assert result.success is False
+    assert result.error == "已达最大迭代次数"
 
 
 def test_generate_material_rejects_when_no_cards(tmp_path: Path) -> None:
@@ -277,10 +197,11 @@ def test_generate_material_rejects_when_no_cards(tmp_path: Path) -> None:
             return []
 
     usecase = GenerateMaterial(
-        llm=FakeLlm(replies=[]),
+        profile=None,  # type: ignore[arg-type]
         source=FakeCrawler(),
         competition_repository=EmptyRepository(),
         output_dir=tmp_path,
+        runner=FakeRunner(outcome=AgentOutcome(final_text="", error=None)),
     )
 
     with pytest.raises(RuntimeError, match="sai identify"):
@@ -291,8 +212,8 @@ def test_generate_material_rejects_when_no_cards(tmp_path: Path) -> None:
 
 
 @pytest.mark.live
-def test_live_generate_material(tmp_path: Path) -> None:
-    """验收标准：真实为库里最新的比赛生成 PPT 大纲，文件落盘且有实质内容。
+def test_live_generate_material_with_agentscope(tmp_path: Path) -> None:
+    """验收标准：AgentScope 循环真实为库里最新比赛生成 PPT 大纲并落盘。
 
     运行：uv run pytest -m live（需要 .env 的 DEEPSEEK_API_KEY 和库里有卡片）
     """
@@ -307,9 +228,8 @@ def test_live_generate_material(tmp_path: Path) -> None:
         skill_name="ppt-outline"
     )
 
-    assert result.success is True
-    assert result.steps >= 2  # 至少经历"调工具 + 收尾"
+    assert result.success is True, f"生成失败：{result.error}"
+    assert len(result.tool_trace) >= 2  # 至少查了信息 + 落了盘
     written = tmp_path / "ppt-outline.md"
     assert written.exists()
-    content = written.read_text(encoding="utf-8")
-    assert len(content) > 300  # 大纲有实质内容，不是一句话交差
+    assert len(written.read_text(encoding="utf-8")) > 300  # 大纲有实质内容

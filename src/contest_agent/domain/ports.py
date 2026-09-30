@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .entities import Competition, LlmReply, Notice
+from .entities import Competition, Notice
 
 
 class NoticeSourcePort(Protocol):
@@ -66,26 +66,18 @@ class NoticeRepositoryPort(Protocol):
 
 
 class LlmPort(Protocol):
-    """能力三：会调用大模型（P2 由 infrastructure/llm 实现，走 OpenAI 兼容接口）。"""
+    """能力三：会调用大模型（P2 由 infrastructure/llm 实现，走 OpenAI 兼容接口）。
+
+    注意：P4 起材料生成的 agent 循环由 AgentScope 框架驱动（ADR-002），
+    走的是 harness/agent_factory 的组装，不经过本端口；
+    本端口只服务"单次结构化调用"这一类任务。
+    """
 
     def complete_structured(self, system: str, user: str, schema: dict) -> dict:
         """单次结构化调用：给提示词和期望的 JSON 格式，返回符合格式的字典。
 
-        注意：识别/提取这类"一问一答"的任务走这里就够了，
-        不需要动用 agent 循环——更快、更便宜、更好测。
-        """
-        ...
-
-    def chat_with_tools(self, messages: list[dict], tools: list[dict]) -> LlmReply:
-        """带工具表的对话式调用（P4：agent loop 的引擎燃料）。
-
-        messages 是完整对话历史（含 system/user/assistant/tool 四种角色），
-        tools 是工具的 JSON Schema 清单；返回 LlmReply——
-        模型这次是"动手"（tool_calls）还是"说话"（content），由循环去解读。
-
-        和 complete_structured 的分工：
-        一问一答的结构化任务走 complete_structured（快、省、可测）；
-        需要模型多轮决策、边查边干的任务才动用本方法（贵、慢，但能干复杂活）。
+        识别/提取这类"一问一答"的任务走这里，不走 agent 循环——
+        更快、更便宜、更好测。
         """
         ...
 

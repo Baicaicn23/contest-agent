@@ -114,13 +114,15 @@ def build_report_usecase() -> GenerateReport:
 
 
 def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateMaterial:
-    """组装 generate_material 用例：LLM + 爬虫 + 卡片仓储 + 输出目录（P4）。
+    """组装 generate_material 用例（P4，v1.5 起由 AgentScope 驱动循环）。
 
-    output_dir 默认是项目根的 output/；测试时传临时目录，材料就不会
-    写进真实输出区。max_steps 沿用用例内默认值 8。
+    传模型档案（而不是建好的客户端）：循环的组装在 harness/agent_factory
+    里完成，框架需要的是档案信息。output_dir 默认项目根的 output/，
+    测试时传临时目录。
     """
+    settings = load_settings_or_raise()
     return GenerateMaterial(
-        llm=build_llm(),
+        profile=settings.active_profile,
         source=build_notice_source(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),

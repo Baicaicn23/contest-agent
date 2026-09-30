@@ -1,6 +1,7 @@
-"""手写 harness 核心：ReAct 循环（loop）、工具注册表（registry）、技能加载（skills）。
+"""harness 层：技能加载（skills）+ AgentScope 接驳层（agent_factory）。
 
-v1.4 决策：不用任何第三方 Agent 框架，这一层就是学习内容本身。
-P4 起正式服役：generate_material 用例由这台循环驱动。
-详见 docs/adr/ADR-001 与 Obsidian 讲解文档 14（/Users/momo/obsidian/notes/水赛codex/）。
+v1.5 起（ADR-002）：ReAct 循环由 AgentScope 框架驱动，本层不再手写循环；
+手写版实现（loop/registry）见 git 历史 `8cd5fe5` 之前。
+本层现在的职责：把框架的模型/工具箱与本项目的端口能力组装起来。
+详见 docs/adr/ADR-002 与 Obsidian 讲解文档 14。
 """
