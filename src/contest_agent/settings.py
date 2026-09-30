@@ -282,3 +282,30 @@ def set_active_model(name: str, config_path: Path | None = None) -> None:
     config_file.write_text("".join(lines), encoding="utf-8")
     # 清掉 load_settings 的进程内缓存，让切换立刻生效
     load_settings.cache_clear()
+
+
+def set_budget(yuan: float | None, config_path: Path | None = None) -> None:
+    """把预算上限写回 config.yaml（M4 前端 Settings 面板的后端）。
+
+    沿用 set_active_model 的"按行替换"策略：只动 budget_per_task_yuan
+    那一行，yaml 里的中文注释原样保留（整文件重写会把注释全冲掉）。
+    yuan=None 写回 null（不限预算）；负数直接拒绝。
+    """
+    if yuan is not None and yuan < 0:
+        raise ValueError("预算不能是负数（0 或 null 表示不限）")
+
+    config_file = config_path or (PROJECT_ROOT / "config.yaml")
+    lines = config_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith("budget_per_task_yuan:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            value = "null" if yuan is None else f"{yuan}"
+            lines[index] = f"{indent}budget_per_task_yuan: {value}\n"
+            replaced = True
+            break
+    if not replaced:
+        raise ValueError("config.yaml 里找不到 budget_per_task_yuan 配置行")
+
+    config_file.write_text("".join(lines), encoding="utf-8")
+    load_settings.cache_clear()

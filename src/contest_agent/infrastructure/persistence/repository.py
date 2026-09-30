@@ -61,8 +61,11 @@ def _build_engine(database_url: str) -> Engine:
     if database_url.endswith(":memory:"):
         # 坑三：内存库的默认行为是"每个新连接 = 全新的空库"，
         # 第二个会话会"找不到表"。StaticPool 让所有会话复用同一个连接，
-        # 内存库才能像文件库一样连续使用
+        # 内存库才能像文件库一样连续使用。
+        # 复用单连接意味着跨线程也要允许（TestClient 的流式响应、
+        # FastAPI 的线程池都在别的线程碰它），所以同样关掉线程检查
         engine_kwargs["poolclass"] = StaticPool
+        connect_args["check_same_thread"] = False
 
     return create_engine(database_url, connect_args=connect_args, **engine_kwargs)
 
@@ -226,7 +229,7 @@ class SqliteUsageRepository:
 
     def list_entries(
         self, task_type: str | None = None, on_date: date | None = None,
-        session_id: int | None = None,
+        session_id: int | None = None, since: datetime | None = None,
     ) -> list[UsageEntry]:
         """按条件查流水，按时间正序返回（对账习惯：从早到晚）。
 
@@ -243,6 +246,8 @@ class SqliteUsageRepository:
                                 UsageRecordModel.created_at < day_end)
         if session_id is not None:
             query = query.where(UsageRecordModel.session_id == session_id)
+        if since is not None:
+            query = query.where(UsageRecordModel.created_at >= since)
         with self._session_factory() as session:
             rows = session.scalars(query).all()
             return [
