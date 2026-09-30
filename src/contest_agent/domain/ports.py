@@ -95,9 +95,66 @@ class UsageRepositoryPort(Protocol):
         ...
 
     def list_entries(
-        self, task_type: str | None = None, on_date: date | None = None
+        self, task_type: str | None = None, on_date: date | None = None,
+        session_id: int | None = None,
     ) -> list[UsageEntry]:
-        """按条件查流水：不传条件 = 全部；task_type 按任务过滤；on_date 只看某一天。"""
+        """按条件查流水：不传条件 = 全部；可按任务、按天、按会话过滤。"""
+        ...
+
+
+class MemoryPort(Protocol):
+    """能力七：能记住"学过的结论"、下次直接翻出来用（M2 由 infrastructure/persistence 实现）。
+
+    典型场景：某条通知已经判断过"不是比赛"，记住这个结论，
+    重复扫描再遇到它就直接跳过 LLM——省钱省时不降级。
+    """
+
+    def remember(self, key: str, value: dict) -> None:
+        """记住一条结论。同一个 key 再记 = 覆盖更新（结论可以随时间修正）。"""
+        ...
+
+    def recall(self, key: str) -> dict | None:
+        """按 key 取记忆；没记过返回 None。"""
+        ...
+
+    def forget_all(self) -> int:
+        """清空全部记忆（sai memory clear 用），返回清掉了几条。"""
+        ...
+
+    def list_entries(self, limit: int = 50) -> list[MemoryEntry]:
+        """列出最近的记忆（sai memory 查看，让人知道系统"记了什么"）。"""
+        ...
+
+    def count(self) -> int:
+        """记忆总条数。"""
+        ...
+
+
+class SessionArchivePort(Protocol):
+    """能力八：能把一次任务的完整轨迹存下来、按需回放（M2 由 infrastructure/persistence 实现）。
+
+    借鉴 pi 的"会话后端独立、接口可换"思想：业务层只认这个接口，
+    存 SQLite 还是别的（甚至内存），随时可换。
+    """
+
+    def create_session(self, task_type: str, note: str = "") -> int:
+        """开一个新会话（任务开始时调用），返回会话编号。"""
+        ...
+
+    def append_event(self, session_id: int, kind: str, payload: dict) -> None:
+        """往会话里追加一条事件（序号由仓储自动递增）。"""
+        ...
+
+    def finish_session(self, session_id: int, status: str) -> None:
+        """标记会话结束：completed / failed / budget_break。"""
+        ...
+
+    def list_sessions(self, limit: int = 20) -> list[SessionSummary]:
+        """列出最近的会话概要（带事件数与该会话的台账花费）。"""
+        ...
+
+    def get_session(self, session_id: int) -> tuple[SessionSummary, list[SessionEvent]]:
+        """取一个会话的完整明细：概要 + 按序号排好的全部事件。找不到抛 KeyError。"""
         ...
 
 

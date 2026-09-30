@@ -4,6 +4,38 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — v2/M2 记忆 + 会话存档 + 评测套件
+
+### 新增
+
+- **持久记忆**：memories 结论缓存——识别过的通知（比赛与否都记）直接
+  命中、跳过 LLM；正文指纹防过期（内容变了自动重判）；
+  `sai memory list/clear`。验收：二次扫描 0 次 LLM 调用
+- **会话存档**：agent_sessions / session_events 两表 +
+  SessionArchivePort（借鉴 pi 会话后端接口化思想）；模型调用、压缩、
+  工具调用、逐条结果全埋点；成本台账按 session_id 归集到任务；
+  `sai sessions` / `sai replay 编号` / `GET /sessions(/{id})`
+- **评测套件**：31 条真实历史通知考卷（19 比赛 / 12 杂事，人工标注，
+  进 git 作为契约）；准确率/精确率/召回/F1 + 比赛名称/截止日期命中；
+  `sai eval --save` 建基线，之后每次自动回归比对（阈值 5 个百分点，
+  判翻的题逐条点名）。**新纪律：改识别提示词/粗筛词表/模型路由后必跑**
+- **评测考卷**：`tests/fixtures/eval_identify.json`（2019-2026 七年
+  真实通知，可自行按格式扩充）
+
+### 变更
+
+- usage_records 台账新增 session_id 列（老库幂等就地迁移——账本含真实
+  花费，不删库重建）；`SessionSummary` 带 llm_calls，显示区分"¥0（没调用）"
+  与"费用未知（调了没配单价）"
+- 识别用例：粗筛后查记忆、LLM 后写结论；ScanOutcome 带 from_memory 标记，
+  CLI 播报"记忆命中省下 N 次调用"
+
+### 测试
+
+- 离线 99 项（M2 新增 15）+ live 4 项全绿
+- 真实验收：二次扫描 0 调用；`sai replay` 回放完整轨迹（含每轮 token
+  与总花费）；`sai eval` 两轮真跑 100% 准确率，基线闭环 PASS
+
 ## [Unreleased] — v2/M1 成本台账与上下文管理
 
 ### 新增

@@ -81,6 +81,7 @@ class PlanStudyPath:
         runner: Callable | None = None,
         meter=None,
         context_config=None,
+        recorder=None,
     ):
         self.profile = profile
         self.search = search
@@ -90,12 +91,35 @@ class PlanStudyPath:
         self.max_verify_rounds = max_verify_rounds
         # runner 可注入：生产用 AgentScope 门面，测试用假 runner
         self.runner = runner or run_material_generation
-        # M1 可选注入：计价器（记账+熔断）与上下文压缩配置，原样透传给 runner
+        # M1/M2 可选注入：计价器、上下文压缩配置、会话记录器，原样透传给 runner
         self.meter = meter
         self.context_config = context_config
+        self.recorder = recorder
 
     def execute(self, competition_name: str | None = None) -> StudyPathResult:
-        """生成备考路径并校验引用；有死链自动反馈重做一轮。"""
+        """生成备考路径并校验引用；有死链自动反馈重做一轮。
+
+        M2 起全程写会话事件（多轮校验的每一轮都在轨迹里），结束时按
+        结局盖状态戳：completed / failed / budget_break。
+        """
+        try:
+            result = self._execute_inner(competition_name)
+        except Exception as error:
+            if self.recorder is not None:
+                self.recorder.log("error", error=str(error))
+                self.recorder.finish("failed")
+            raise
+        if self.recorder is not None:
+            if result.success:
+                self.recorder.finish("completed")
+            elif result.error and "预算熔断" in result.error:
+                self.recorder.finish("budget_break")
+            else:
+                self.recorder.finish("failed")
+        return result
+
+    def _execute_inner(self, competition_name: str | None = None) -> StudyPathResult:
+        """真正的生成-校验循环（execute 只负责会话状态盖章这一层壳）。"""
         skill = load_skill("study-path")
         card = self._pick_card(competition_name)
 
@@ -127,6 +151,7 @@ class PlanStudyPath:
                     search=self.search,
                     competition_repository=self.competition_repository,
                     output_dir=self.output_dir,
+                    recorder=self.recorder,
                 )
 
             outcome, tools = self.runner(
@@ -137,6 +162,7 @@ class PlanStudyPath:
                 max_iters=self.max_iters,
                 meter=self.meter,
                 context_config=self.context_config,
+                recorder=self.recorder,
             )
             tool_trace = list(tools.trace)
 

@@ -14,12 +14,27 @@ import hashlib
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, select
+from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from ...domain.entities import Competition, Notice, UsageEntry
-from .models import Base, CompetitionModel, NoticeModel, UsageRecordModel
+from ...domain.entities import (
+    Competition,
+    MemoryEntry,
+    Notice,
+    SessionEvent,
+    SessionSummary,
+    UsageEntry,
+)
+from .models import (
+    Base,
+    CompetitionModel,
+    MemoryModel,
+    NoticeModel,
+    SessionEventModel,
+    SessionModel,
+    UsageRecordModel,
+)
 
 
 def _build_engine(database_url: str) -> Engine:
@@ -174,7 +189,23 @@ class SqliteUsageRepository:
     def __init__(self, database_url: str):
         self._engine = _build_engine(database_url)
         Base.metadata.create_all(self._engine)
+        self._migrate_add_session_id()
         self._session_factory = sessionmaker(bind=self._engine)
+
+    def _migrate_add_session_id(self) -> None:
+        """给 M1 时代建的老库就地补 session_id 列（M2）。
+
+        为什么做这个小迁移而不是按 v1 约定"删库重建"？——usage_records 里
+        存的是真实花掉的钱的记录，删了就没了（通知和卡片可以重爬，
+        账本不行）。create_all 只会建缺的表、不会改已有的表，
+        所以用 PRAGMA 查列、缺就 ALTER——幂等，跑多少遍都安全。
+        等这类小迁移多到难受的那天，再正经开 Alembic（开发文档 §6 预警）。
+        """
+        with self._engine.connect() as conn:
+            columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(usage_records)")}
+            if "session_id" not in columns:
+                conn.exec_driver_sql("ALTER TABLE usage_records ADD COLUMN session_id INTEGER")
+                conn.commit()
 
     def record(self, entry: UsageEntry) -> None:
         """记一笔 LLM 调用流水。created_at 没写就补当前时间。"""
@@ -189,11 +220,13 @@ class SqliteUsageRepository:
                     cost_yuan=entry.cost_yuan,
                     note=entry.note,
                     created_at=entry.created_at or datetime.now(),
+                    session_id=entry.session_id,
                 )
             )
 
     def list_entries(
-        self, task_type: str | None = None, on_date: date | None = None
+        self, task_type: str | None = None, on_date: date | None = None,
+        session_id: int | None = None,
     ) -> list[UsageEntry]:
         """按条件查流水，按时间正序返回（对账习惯：从早到晚）。
 
@@ -208,6 +241,8 @@ class SqliteUsageRepository:
             day_end = datetime(on_date.year, on_date.month, on_date.day) + timedelta(days=1)
             query = query.where(UsageRecordModel.created_at >= day_start,
                                 UsageRecordModel.created_at < day_end)
+        if session_id is not None:
+            query = query.where(UsageRecordModel.session_id == session_id)
         with self._session_factory() as session:
             rows = session.scalars(query).all()
             return [
@@ -220,6 +255,182 @@ class SqliteUsageRepository:
                     cost_yuan=row.cost_yuan,
                     note=row.note,
                     created_at=row.created_at,
+                    session_id=row.session_id,
                 )
                 for row in rows
             ]
+
+
+class SqliteMemoryRepository:
+    """memories 表的仓储，实现 MemoryPort（M2 持久记忆）。"""
+
+    def __init__(self, database_url: str):
+        self._engine = _build_engine(database_url)
+        Base.metadata.create_all(self._engine)
+        self._session_factory = sessionmaker(bind=self._engine)
+
+    def remember(self, key: str, value: dict) -> None:
+        """记住一条结论：不存在就插入，已存在就覆盖（并刷新 updated_at）。"""
+        with self._session_factory() as session, session.begin():
+            row = session.scalar(select(MemoryModel).where(MemoryModel.key == key))
+            if row is None:
+                session.add(MemoryModel(key=key, value=value, updated_at=datetime.now()))
+            else:
+                row.value = value
+                row.updated_at = datetime.now()
+
+    def recall(self, key: str) -> dict | None:
+        """按 key 取记忆；没记过返回 None。"""
+        with self._session_factory() as session:
+            row = session.scalar(select(MemoryModel).where(MemoryModel.key == key))
+            return row.value if row is not None else None
+
+    def forget_all(self) -> int:
+        """清空全部记忆，返回清掉了几条（给 CLI 播报）。"""
+        with self._session_factory() as session, session.begin():
+            rows = session.scalars(select(MemoryModel)).all()
+            count = len(rows)
+            for row in rows:
+                session.delete(row)
+        return count
+
+    def list_entries(self, limit: int = 50) -> list[MemoryEntry]:
+        """按更新时间倒序列出最近的记忆。"""
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(MemoryModel).order_by(MemoryModel.updated_at.desc()).limit(limit)
+            ).all()
+            return [
+                MemoryEntry(key=row.key, value=row.value or {},
+                            created_at=row.created_at, updated_at=row.updated_at)
+                for row in rows
+            ]
+
+    def count(self) -> int:
+        """记忆总条数。"""
+        with self._session_factory() as session:
+            return len(session.scalars(select(MemoryModel.id)).all())
+
+
+class SqliteSessionRepository:
+    """agent_sessions + session_events 两表的仓储，实现 SessionArchivePort（M2）。"""
+
+    def __init__(self, database_url: str):
+        self._engine = _build_engine(database_url)
+        Base.metadata.create_all(self._engine)
+        self._session_factory = sessionmaker(bind=self._engine)
+
+    def create_session(self, task_type: str, note: str = "") -> int:
+        """开新会话，返回自增编号。"""
+        with self._session_factory() as session, session.begin():
+            row = SessionModel(task_type=task_type, note=note)
+            session.add(row)
+            session.flush()  # flush 后自增主键才回填到对象上
+            return row.id
+
+    def append_event(self, session_id: int, kind: str, payload: dict) -> None:
+        """追加事件：序号 = 该会话当前最大序号 + 1（仓储负责发号，调用方不用管）。"""
+        with self._session_factory() as session, session.begin():
+            max_seq = session.scalar(
+                select(SessionEventModel.seq)
+                .where(SessionEventModel.session_id == session_id)
+                .order_by(SessionEventModel.seq.desc())
+                .limit(1)
+            )
+            session.add(
+                SessionEventModel(session_id=session_id, kind=kind,
+                                  payload=payload, seq=(max_seq or 0) + 1)
+            )
+
+    def finish_session(self, session_id: int, status: str) -> None:
+        """标记会话结束并盖结束时间戳。"""
+        with self._session_factory() as session, session.begin():
+            row = session.get(SessionModel, session_id)
+            if row is not None:
+                row.status = status
+                row.ended_at = datetime.now()
+
+    def _to_summary(self, row: SessionModel, event_count: int,
+                    cost: float | None, llm_calls: int = 0) -> SessionSummary:
+        """ORM 行 -> 领域概要对象（转换规则集中一处）。
+
+        cost 为 None 且 llm_calls 为 0 = 这次任务根本没调过 LLM（纯粗筛/纯记忆），
+        显示上就是"¥0"；cost 为 None 但有调用 = 有调用没配上单价，才是"费用未知"。
+        """
+        return SessionSummary(
+            id=row.id, task_type=row.task_type, note=row.note or "",
+            status=row.status, started_at=row.started_at, ended_at=row.ended_at,
+            event_count=event_count, cost_yuan=cost, llm_calls=llm_calls,
+        )
+
+    def list_sessions(self, limit: int = 20) -> list[SessionSummary]:
+        """最近 limit 个会话概要（新任务在前），附事件数与台账花费。
+
+        事件数与花费是两笔子查询：事件数按 session_id 分组计数；
+        花费从 usage_records 按 session_id 汇总——账目只认成本台账一份，
+        会话表不重复存钱，避免两处数字对不上。
+        """
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(SessionModel).order_by(SessionModel.id.desc()).limit(limit)
+            ).all()
+            event_counts: dict[int, int] = dict(session.execute(
+                select(SessionEventModel.session_id, func.count(SessionEventModel.id))
+                .group_by(SessionEventModel.session_id)
+            ).all())
+            costs: dict[int, float] = {}
+            call_counts: dict[int, int] = {}
+            for sid, total in session.execute(
+                select(UsageRecordModel.session_id, func.sum(UsageRecordModel.cost_yuan))
+                .where(UsageRecordModel.session_id.isnot(None))
+                .group_by(UsageRecordModel.session_id)
+            ).all():
+                if sid is not None and total is not None:
+                    costs[sid] = float(total)
+            for sid, calls in session.execute(
+                select(UsageRecordModel.session_id, func.count(UsageRecordModel.id))
+                .where(UsageRecordModel.session_id.isnot(None))
+                .group_by(UsageRecordModel.session_id)
+            ).all():
+                if sid is not None:
+                    call_counts[sid] = int(calls)
+            return [
+                self._to_summary(row, event_counts.get(row.id, 0), costs.get(row.id),
+                                 call_counts.get(row.id, 0))
+                for row in rows
+            ]
+
+    def get_session(self, session_id: int) -> tuple[SessionSummary, list[SessionEvent]]:
+        """取会话完整明细；找不到抛 KeyError（调用方翻译成 404/人话）。"""
+        with self._session_factory() as session:
+            row = session.get(SessionModel, session_id)
+            if row is None:
+                raise KeyError(f"会话 {session_id} 不存在")
+            event_rows = session.scalars(
+                select(SessionEventModel)
+                .where(SessionEventModel.session_id == session_id)
+                .order_by(SessionEventModel.seq)
+            ).all()
+            count_row = session.execute(
+                select(func.count(SessionEventModel.id))
+                .where(SessionEventModel.session_id == session_id)
+            ).scalar()
+            cost_row = session.execute(
+                select(func.sum(UsageRecordModel.cost_yuan))
+                .where(UsageRecordModel.session_id == session_id)
+            ).scalar()
+            calls_row = session.execute(
+                select(func.count(UsageRecordModel.id))
+                .where(UsageRecordModel.session_id == session_id)
+            ).scalar()
+            summary = self._to_summary(
+                row, count_row or 0,
+                float(cost_row) if cost_row is not None else None,
+                calls_row or 0,
+            )
+            events = [
+                SessionEvent(seq=e.seq, kind=e.kind, payload=e.payload or {},
+                             created_at=e.created_at)
+                for e in event_rows
+            ]
+            return summary, events

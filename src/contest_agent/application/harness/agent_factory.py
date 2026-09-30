@@ -83,12 +83,13 @@ class MaterialTools:
     functions: dict[str, Callable[..., str]] = field(default_factory=dict)
 
 
-def build_chat_model(profile: ModelProfile, meter=None) -> ChatModelBase:
+def build_chat_model(profile: ModelProfile, meter=None, recorder=None) -> ChatModelBase:
     """按模型档案创建 AgentScope 的聊天模型客户端。
 
     密钥缺失在这里立刻报错，错误信息直接告诉用户该设置哪个环境变量。
     传入 meter（CostMeter）时，返回的是包了计价器的代理模型：
     每轮调用前查预算、调用后记账——框架对此完全无感。
+    M2 起可再传 recorder（TaskRecorder），代理同时记会话事件。
     """
     api_key = profile.resolve_api_key()
     if not api_key:
@@ -113,7 +114,9 @@ def build_chat_model(profile: ModelProfile, meter=None) -> ChatModelBase:
             max_retries=2,
         )
     # 没配计价器就返回裸模型，行为与 v1.5 完全一致
-    return MeteredChatModel(inner, meter) if meter is not None else inner
+    if meter is None and recorder is None:
+        return inner
+    return MeteredChatModel(inner, meter, recorder)
 
 
 class MeteredChatModel:
@@ -124,14 +127,18 @@ class MeteredChatModel:
     统一加上"前置检查 + 后置记账"。框架拿到它照常用，因为 Agent
     只按鸭子类型调 __call__ / count_tokens 这几个方法（见模块 docstring 第 3 点）。
 
+    M2 起可选携带 TaskRecorder：每次模型调用、每次压缩都记一条事件，
+    sai replay 由此回放任务轨迹。
+
     已知缺口（刻意接受，见 ADR-003）：框架做上下文压缩时内部另发的
     摘要调用不经过本代理的 __call__，那几笔 token 暂不进台账。
     """
 
-    def __init__(self, inner: ChatModelBase, meter):
+    def __init__(self, inner: ChatModelBase, meter, recorder=None):
         # meter 是 application/cost.py 的 CostMeter（不标类型，理由见 build_chat_model）
         self._inner = inner
         self._meter = meter
+        self._recorder = recorder
 
     @property
     def context_size(self) -> int:
@@ -152,6 +159,17 @@ class MeteredChatModel:
                 prompt_tokens=usage.input_tokens,
                 completion_tokens=usage.output_tokens,
             )
+        # 会话事件：这一轮模型调用（正文太长只存摘要，完整轨迹的价值在
+        # "哪一步、用了多少 token、输出了什么类型的块"，不在逐字存档）
+        if self._recorder is not None:
+            block_types = [type(b).__name__ for b in getattr(response, "content", []) or []]
+            self._recorder.log(
+                "model_call",
+                messages=len(messages) if messages else 0,
+                input_tokens=getattr(usage, "input_tokens", None) if usage else None,
+                output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+                blocks=block_types,
+            )
         return response
 
     async def count_tokens(self, messages: list, tools: list | None = None) -> int:
@@ -159,7 +177,9 @@ class MeteredChatModel:
         return await self._inner.count_tokens(messages, tools)
 
     async def generate_structured_output(self, *args, **kwargs):
-        """透传结构化输出（框架压缩上下文时用它生成摘要）。"""
+        """透传结构化输出；框架压缩上下文走这里——记一条压缩事件。"""
+        if self._recorder is not None:
+            self._recorder.log("compression", note="上下文超过阈值，框架开始生成摘要")
         return await self._inner.generate_structured_output(*args, **kwargs)
 
     def __getattr__(self, name: str):
@@ -188,13 +208,37 @@ def _with_truncation(func: Callable[..., str]) -> Callable[..., str]:
     return wrapper
 
 
-async def _add_tool(toolkit: Toolkit, func: Callable[..., str]) -> None:
-    """注册工具的统一入口：先套截断外壳，再以无人值守授权挂进工具箱。
+def _with_recording(func: Callable[..., str], recorder) -> Callable[..., str]:
+    """给工具函数套上"会话记录"外壳（M2）：每次调用记一条 tool_call 事件。
+
+    截断壳在里、记录壳在外——存进会话的是"模型实际看到的结果"
+    （截断后的），回放时才不会出现"存档说很长、模型其实只看到一半"的错位。
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        if recorder is not None:
+            recorder.log(
+                "tool_call",
+                tool=func.__name__,
+                args={k: str(v)[:200] for k, v in kwargs.items()},
+                result=str(result)[:2000],
+            )
+        return result
+
+    return wrapper
+
+
+async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None) -> None:
+    """注册工具的统一入口：先套截断外壳、再套记录外壳，最后授权挂进工具箱。
 
     所有工具都从这里过，保证"统一截断"一个都不漏——
     如果各处直接调 toolkit.add_tool，很快就会有人忘了包外壳。
     """
-    await toolkit.add_tool(FunctionTool(func=_with_truncation(func), permission=ALLOWED))
+    wrapped = _with_truncation(func)
+    if recorder is not None:
+        wrapped = _with_recording(wrapped, recorder)
+    await toolkit.add_tool(FunctionTool(func=wrapped, permission=ALLOWED))
 
 
 def _make_save_material(output_dir: Path, trace: list[str]) -> Callable[..., str]:
@@ -225,12 +269,14 @@ async def build_material_tools(
     source: NoticeSourcePort,
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
+    recorder=None,
 ) -> MaterialTools:
     """把三件工具注册进 AgentScope 的 Toolkit（异步：框架要求）。
 
     工具的说明书由 AgentScope 自动生成——从函数的 docstring 和
     类型标注提取，所以注释写得越清楚，模型用得越准。
     trace 列表由各闭包写入，跑完后供 CLI 播报"agent 干了什么"。
+    recorder 不为 None 时，每次工具调用还会写一条会话事件（M2）。
     """
     tools = MaterialTools(toolkit=Toolkit())
 
@@ -265,8 +311,8 @@ async def build_material_tools(
         "save_material": save_material,
     }
     for func in functions.values():
-        # 统一入口注册：套截断外壳 + 无人值守授权（见 _add_tool 注释）
-        await _add_tool(tools.toolkit, func)
+        # 统一入口注册：套截断外壳 + 记录外壳 + 无人值守授权（见 _add_tool 注释）
+        await _add_tool(tools.toolkit, func, recorder)
     tools.functions = functions
     return tools
 
@@ -275,6 +321,7 @@ async def build_study_tools(
     search: SearchPort,
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
+    recorder=None,
 ) -> MaterialTools:
     """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。"""
 
@@ -320,7 +367,7 @@ async def build_study_tools(
         "list_competitions": list_competitions,
     }
     for func in functions.values():
-        await _add_tool(tools.toolkit, func)
+        await _add_tool(tools.toolkit, func, recorder)
     tools.functions = functions
     return tools
 
@@ -333,18 +380,22 @@ async def _run_material_agent_async(
     max_iters: int,
     meter=None,
     context_config: ContextConfig | None = None,
+    recorder=None,
 ) -> AgentOutcome:
     """组装 Agent 并跑完一次材料生成任务（异步版）。
 
-    meter / context_config 都是 M1 的可选注入：
+    meter / context_config / recorder 都是可选注入：
     - meter 有值 -> 模型客户端包上计价代理（预算熔断 + 记账）；
     - context_config 有值 -> 打开框架的自动上下文压缩（超阈值时
-      把旧对话压成结构化摘要，长任务不再撑爆窗口）。
+      把旧对话压成结构化摘要，长任务不再撑爆窗口）；
+    - recorder 有值 -> 模型调用、压缩、工具调用、收尾都写会话事件（M2）。
     """
+    if recorder is not None:
+        recorder.log("user_input", text=user_request[:1000])
     agent = Agent(
         name="material_agent",
         system_prompt=system_prompt,
-        model=build_chat_model(profile, meter),
+        model=build_chat_model(profile, meter, recorder),
         toolkit=tools.toolkit,
         react_config=ReActConfig(max_iters=max_iters),
         context_config=context_config,
@@ -360,6 +411,11 @@ async def _run_material_agent_async(
     text = "\n".join(
         block.text for block in reply.content if getattr(block, "type", "") == "text"
     )
+    if recorder is not None:
+        if reply.error is None:
+            recorder.log("result", final_text=text)
+        else:
+            recorder.log("error", error=str(reply.error))
     return AgentOutcome(final_text=text, error=None if reply.error is None else str(reply.error))
 
 
@@ -371,13 +427,14 @@ def run_material_generation(
     max_iters: int = 8,
     meter=None,
     context_config: ContextConfig | None = None,
+    recorder=None,
 ) -> tuple[AgentOutcome, MaterialTools]:
     """同步门面：建工具箱 -> 组 Agent -> 跑循环，返回结果和工具轨迹。
 
     tools_builder：零参数的异步函数，返回装好工具的 MaterialTools
     （异步是框架要求——add_tool 是异步方法）。材料生成和备考路径
     两个任务各自传入自己的工具箱构建器。
-    meter / context_config：M1 的可选计价器与压缩配置，原样透传。
+    meter / context_config / recorder：M1/M2 的可选注入，原样透传。
     用 asyncio.run 包装异步调用，让用例层和 CLI 保持同步代码风格。
     注意：未来 FastAPI 异步环境调用时要换成 await 版本（P6 处理）。
     """
@@ -386,7 +443,7 @@ def run_material_generation(
         tools = await tools_builder()
         outcome = await _run_material_agent_async(
             profile, system_prompt, user_request, tools, max_iters,
-            meter=meter, context_config=context_config,
+            meter=meter, context_config=context_config, recorder=recorder,
         )
         return outcome, tools
 

@@ -21,17 +21,23 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from .application.cost import CostMeter
+from .application.recorder import TaskRecorder
 from .application.usecases.cost_report import CostReport
+from .application.usecases.evaluate_identification import EvaluateIdentification
 from .application.usecases.generate_material import GenerateMaterial
 from .application.usecases.generate_report import GenerateReport
 from .application.usecases.identify_competitions import IdentifyCompetitions
+from .application.usecases.memory_report import MemoryReport
 from .application.usecases.plan_study_path import PlanStudyPath
 from .application.usecases.scan_site import ScanSite
+from .application.usecases.session_report import SessionReport
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .infrastructure.persistence.repository import (
     SqliteCompetitionRepository,
+    SqliteMemoryRepository,
     SqliteNoticeRepository,
+    SqliteSessionRepository,
     SqliteUsageRepository,
 )
 from .infrastructure.search.web_search import BingSearch
@@ -44,15 +50,20 @@ __all__ = [
     "build_competition_repository",
     "build_cost_meter",
     "build_cost_report_usecase",
+    "build_eval_usecase",
     "build_generate_material_usecase",
     "build_identify_usecase",
     "build_llm",
+    "build_memory_report_usecase",
+    "build_memory_repository",
     "build_notice_repository",
     "build_notice_source",
     "build_plan_study_path_usecase",
     "build_report_usecase",
     "build_scan_usecase",
     "build_search",
+    "build_session_report_usecase",
+    "build_task_recorder",
     "build_usage_repository",
     "build_usecases",
 ]
@@ -95,16 +106,36 @@ def build_usage_repository() -> SqliteUsageRepository:
     return SqliteUsageRepository(settings.database_url)
 
 
+def build_memory_repository() -> SqliteMemoryRepository:
+    """组装持久记忆仓储（M2）：识别结论缓存存在同一个数据库文件里。"""
+    settings = load_settings_or_raise()
+    return SqliteMemoryRepository(settings.database_url)
+
+
+def build_session_repository() -> SqliteSessionRepository:
+    """组装会话存档仓储（M2）：任务轨迹存在同一个数据库文件里。"""
+    settings = load_settings_or_raise()
+    return SqliteSessionRepository(settings.database_url)
+
+
+def build_task_recorder(task_type: str, note: str = "") -> TaskRecorder:
+    """开一个新任务会话并返回记录器（M2）。CLI 每次跑任务时调一次。"""
+    return TaskRecorder(build_session_repository(), task_type, note)
+
+
 def build_cost_meter(
     settings: Settings,
     profile,
     task_type: str,
     note: str = "",
+    session_id: int | None = None,
 ) -> CostMeter:
     """组装计价器：台账仓储 + 预算上限（来自 config.yaml / 环境变量）。
 
     单独拎出来的原因：identify（本函数）和 agent 循环（下面的
     generate/study_path 组装）两条通路都要计价器，规则只写一处。
+    session_id 有值时，每笔流水都盖会话章——sai sessions 里才能
+    显示"这个任务花了多少钱"。
     """
     return CostMeter(
         profile=profile,
@@ -112,6 +143,7 @@ def build_cost_meter(
         repository=build_usage_repository(),
         budget_yuan=settings.budget_per_task_yuan,
         note=note,
+        session_id=session_id,
     )
 
 
@@ -138,14 +170,25 @@ def build_scan_usecase() -> ScanSite:
     return ScanSite(build_notice_source(), build_notice_repository())
 
 
-def build_identify_usecase() -> IdentifyCompetitions:
-    """组装 identify_competitions 用例：爬虫 + LLM + 卡片仓储（P2/P3）。
+def build_identify_usecase(note: str = "") -> IdentifyCompetitions:
+    """组装 identify_competitions 用例：爬虫 + LLM + 卡片仓储（P2/P3 + M2 记忆/会话）。
 
-    这就是"三个端口在一处会师"：用例只管编排，
-    具体实现都由本函数决定。
+    这就是"三个端口在一处会师"：用例只管编排，具体实现都由本函数决定。
+    CLI 每次调用都会开一个新会话（recorder），LLM 花费记在该会话名下，
+    判断结论写进持久记忆供下次复用。
     """
+    settings = load_settings_or_raise()
+    recorder = build_task_recorder("identify", note)
+    profile = settings.profile_for_task("identify")
+    meter = build_cost_meter(settings, profile, "identify", note,
+                             session_id=recorder.session_id)
+    llm = OpenAiCompatLlm(profile, meter=meter, recorder=recorder)
     return IdentifyCompetitions(
-        build_notice_source(), build_llm("identify"), build_competition_repository()
+        build_notice_source(),
+        llm,
+        build_competition_repository(),
+        memory=build_memory_repository(),
+        recorder=recorder,
     )
 
 
@@ -157,6 +200,29 @@ def build_report_usecase() -> GenerateReport:
 def build_cost_report_usecase() -> CostReport:
     """组装 cost_report 用例：查成本台账并汇总（M1，不需要 LLM 密钥）。"""
     return CostReport(build_usage_repository())
+
+
+def build_session_report_usecase() -> SessionReport:
+    """组装 session_report 用例：查会话存档（M2，不需要 LLM 密钥）。"""
+    return SessionReport(build_session_repository())
+
+
+def build_memory_report_usecase() -> MemoryReport:
+    """组装 memory_report 用例：查看/清理持久记忆（M2，不需要 LLM 密钥）。"""
+    return MemoryReport(build_memory_repository())
+
+
+def build_eval_usecase(dataset_path=None) -> EvaluateIdentification:
+    """组装 eval 评测用例（M2）：考真 LLM、不碰记忆、不写卡片库。
+
+    考试花费照样进台账（task_type=eval，和日常 identify 分开记账），
+    但不开会话——sai sessions 回放的是真实任务，不是模拟考。
+    """
+    settings = load_settings_or_raise()
+    profile = settings.profile_for_task("eval")
+    meter = build_cost_meter(settings, profile, "eval", note="识别能力评测")
+    llm = OpenAiCompatLlm(profile, meter=meter)
+    return EvaluateIdentification(llm=llm, dataset_path=dataset_path, meter=meter)
 
 
 def _build_context_config():
@@ -171,21 +237,25 @@ def _build_context_config():
     return ContextConfig(trigger_ratio=settings.yaml_config.context.trigger_ratio)
 
 
-def build_generate_material_usecase(output_dir: Path | None = None) -> GenerateMaterial:
+def build_generate_material_usecase(output_dir: Path | None = None, note: str = "") -> GenerateMaterial:
     """组装 generate_material 用例（P4，循环由 AgentScope 驱动）。
 
     M1 起附带：按任务路由的模型档案 + 计价器（预算熔断）+ 压缩配置。
+    M2 起附带：会话记录器（CLI 路径每次开新会话，轨迹可回放）。
     output_dir 默认项目根的 output/；测试时传临时目录。
     """
     settings = load_settings_or_raise()
     profile = settings.profile_for_task("generate")
+    recorder = build_task_recorder("generate", note)
     return GenerateMaterial(
         profile=profile,
         source=build_notice_source(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
-        meter=build_cost_meter(settings, profile, "generate"),
+        meter=build_cost_meter(settings, profile, "generate", note,
+                               session_id=recorder.session_id),
         context_config=_build_context_config(),
+        recorder=recorder,
     )
 
 
@@ -195,17 +265,20 @@ def build_search() -> BingSearch:
     return BingSearch(settings.yaml_config.search)
 
 
-def build_plan_study_path_usecase(output_dir: Path | None = None) -> PlanStudyPath:
-    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价）。"""
+def build_plan_study_path_usecase(output_dir: Path | None = None, note: str = "") -> PlanStudyPath:
+    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价 + M2 会话）。"""
     settings = load_settings_or_raise()
     profile = settings.profile_for_task("study_path")
+    recorder = build_task_recorder("study_path", note)
     return PlanStudyPath(
         profile=profile,
         search=build_search(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
-        meter=build_cost_meter(settings, profile, "study_path"),
+        meter=build_cost_meter(settings, profile, "study_path", note,
+                               session_id=recorder.session_id),
         context_config=_build_context_config(),
+        recorder=recorder,
     )
 
 
@@ -244,12 +317,17 @@ def build_usecases() -> Usecases:
                     meter=build_cost_meter(settings, identify_profile, "identify"),
                 ),
                 build_competition_repository(),
+                # HTTP 路径接记忆（结论复用的收益同样成立），但不接会话记录器：
+                # 常驻服务在启动时组装用例，若在此开会话，每个进程会永远挂着
+                # 一个"running"会话——按请求归档留给后续与 FastAPI 依赖注入一起做
+                memory=build_memory_repository(),
             )
             if llm_ready(identify_profile)
             else None
         ),
         report=GenerateReport(build_competition_repository()),
         cost_report=build_cost_report_usecase(),
+        sessions=build_session_report_usecase(),
         generate_material=(
             GenerateMaterial(
                 profile=generate_profile,
