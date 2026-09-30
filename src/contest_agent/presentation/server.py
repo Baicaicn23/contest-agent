@@ -148,14 +148,14 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
     """创建 FastAPI 应用。usecases 由装配根注入；测试时可以传假用例。"""
     app = FastAPI(
         title="contest_agent",
-        version="0.1.0",
+        version="0.2.0",
         description="比赛 Agent 助手 API",
     )
 
     @app.get("/health")
     def health() -> dict:
         """健康检查：监控/网关定期来戳一下，确认服务活着。"""
-        payload: dict = {"status": "ok", "version": "0.1.0"}
+        payload: dict = {"status": "ok", "version": "0.2.0"}
         if settings is not None:
             payload["active_model"] = settings.active_model
         return payload
