@@ -44,6 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default=None, help="输出文件路径（默认 output/contest_report.md）"
     )
 
+    # 子命令四：sai generate [--skill 名] [--competition 关键字]（P4：手写 harness）
+    generate = sub.add_parser(
+        "generate", help="为比赛生成参赛材料（ReAct 循环 + 工具 + 技能）"
+    )
+    generate.add_argument(
+        "--skill", default="ppt-outline",
+        help="技能名，对应 skills/ 目录下的文件（ppt-outline / proposal）",
+    )
+    generate.add_argument(
+        "--competition", default=None,
+        help="比赛名称关键字（默认取库里截止日期最近的一张卡）",
+    )
+    generate.add_argument(
+        "--max-steps", type=int, default=8, help="agent 循环最大步数（防死循环）"
+    )
+
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
     model.add_argument("action", nargs="?", default="list", choices=["list", "use"])
@@ -178,6 +194,46 @@ def _run_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_generate(args: argparse.Namespace) -> int:
+    """执行 sai generate：点火 ReAct 循环，边跑边播报工具轨迹，最后展示成果。
+
+    轨迹播报是刻意保留的：材料是 LLM 生成的，人必须能看到
+    "它查了什么、写了什么文件"才敢放心用——这是 agent 产品的透明度底线。
+    """
+    from ..composition import build_generate_material_usecase
+
+    try:
+        usecase = build_generate_material_usecase()
+        result = usecase.execute(
+            skill_name=args.skill,
+            competition_name=args.competition,
+        )
+    except (ConnectionError, RuntimeError, FileNotFoundError) as error:
+        # RuntimeError：没卡片/没匹配比赛；FileNotFoundError：技能名打错
+        print(f"生成失败：{error}")
+        return 1
+
+    print(f"任务：为「{result.competition_name}」生成「{result.skill_name}」材料")
+    print(f"循环步数：{result.steps} ｜ 状态：{'完成' if result.success else '未完成（步数耗尽）'}")
+
+    # 工具轨迹播报：agent 干活的透明度底线
+    if result.tool_trace:
+        print("\n工具轨迹：")
+        for line in result.tool_trace:
+            print(f"  - {line}")
+
+    print("-" * 62)
+
+    if not result.success:
+        print(result.final_text)
+        return 1
+
+    print(result.final_text)
+    print("-" * 62)
+    print("材料已保存到 output/ 目录，请用编辑器打开检查内容质量。")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -194,6 +250,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "report":
         return _run_report(args)
+
+    if args.command == "generate":
+        return _run_generate(args)
 
     if args.command == "model":
         # 在函数内部 import：只有真的执行到这个子命令才加载配置模块

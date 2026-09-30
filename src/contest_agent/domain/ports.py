@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .entities import Competition, Notice
+from .entities import Competition, LlmReply, Notice
 
 
 class NoticeSourcePort(Protocol):
@@ -73,6 +73,19 @@ class LlmPort(Protocol):
 
         注意：识别/提取这类"一问一答"的任务走这里就够了，
         不需要动用 agent 循环——更快、更便宜、更好测。
+        """
+        ...
+
+    def chat_with_tools(self, messages: list[dict], tools: list[dict]) -> LlmReply:
+        """带工具表的对话式调用（P4：agent loop 的引擎燃料）。
+
+        messages 是完整对话历史（含 system/user/assistant/tool 四种角色），
+        tools 是工具的 JSON Schema 清单；返回 LlmReply——
+        模型这次是"动手"（tool_calls）还是"说话"（content），由循环去解读。
+
+        和 complete_structured 的分工：
+        一问一答的结构化任务走 complete_structured（快、省、可测）；
+        需要模型多轮决策、边查边干的任务才动用本方法（贵、慢，但能干复杂活）。
         """
         ...
 
