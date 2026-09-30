@@ -6,12 +6,12 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek--4363ee?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PC9zdmc+)](https://www.deepseek.com/)
-[![Tests](https://img.shields.io/badge/tests-45%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![AgentScope](https://img.shields.io/badge/AgentLoop-AgentScope-1264A3)](https://github.com/agentscope-ai/agentscope)
+[![Tests](https://img.shields.io/badge/tests-99%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-参与贡献)
 
-*一个面向学生个人的比赛情报 Agent：盯着学院官网的通知公告，把混在里面的比赛挑出来，提取成结构化卡片，并为后续生成 PPT 大纲、计划书、学习路径打下地基。*
+*一个面向学生个人的比赛情报 Agent：盯着学院官网的通知公告，把混在里面的比赛挑出来、提取成结构化卡片，并自动生成 PPT 大纲、参赛计划书、备考学习路径——全程成本可查（`sai cost`）、轨迹可回放（`sai replay`）、质量有评测把关（`sai eval`）。*
 
 **[功能特性](#-功能特性) · [快速开始](#-快速开始) · [架构设计](#-架构设计) · [路线图](#-路线图) · [Agent 层选型历程](#-agent-层的选型历程adr-001--adr-002)**
 
@@ -23,14 +23,18 @@
 
 | | 功能 | 状态 |
 | :-: | --- | :-: |
-| 🕷️ | **自动盯官网**：定时爬取学院官网通知公告，限速礼貌、逐条容错 | ✅ v0.1 |
+| 🕷️ | **自动盯官网**：爬取学院官网通知公告，限速礼貌、逐条容错、选择器全配置化 | ✅ v0.1 |
 | 🧠 | **LLM 识别比赛**：关键词粗筛 + 单次结构化调用，杂事零成本挡下 | ✅ v0.1 |
 | 📇 | **结构化比赛卡片**：名称 / 类型 / 截止日期，附**逐字原文证据**防幻觉 | ✅ v0.1 |
-| 💰 | **成本控制意识**：5 条通知通常只花 1 次 LLM 调用 | ✅ v0.1 |
-| 🔌 | **端口化架构**：爬虫 / LLM / 存储 / 搜索全部面向接口，换实现只改装配根 | ✅ v0.1 |
-| 🧪 | **三层测试**：离线样本测试 + 假对象编排测试 + 显式联网验收 | ✅ v0.1 |
-| 📝 | **材料生成**：按 Skill 生成 PPT 大纲 / 计划书 / 演讲稿（AgentScope ReAct 循环） | ✅ v0.1 |
+| 📝 | **材料生成**：按 Skill 生成 PPT 大纲 / 计划书（AgentScope ReAct 循环） | ✅ v0.1 |
 | 📚 | **学习路径**：考试型比赛生成强制真实引用的备考路径（联网搜索 + 引用校验） | ✅ v0.1 |
+| 💰 | **成本台账**：每次调用记 token/费用，`sai cost` 回答"花了多少钱"；预算闸门超限熔断；按任务路由模型（粗活便宜模型、重活强模型），台账可证 | ✅ v2/M1 |
+| 🗜️ | **上下文管理**：超阈值自动压缩（结构化摘要）+ 工具结果统一截断，长任务不撑爆窗口 | ✅ v2/M1 |
+| ♻️ | **持久记忆**：判过的通知直接命中记忆、跳过 LLM——**二次扫描 0 次调用**；正文变了自动重判 | ✅ v2/M2 |
+| 📼 | **会话存档**：每次任务的完整轨迹（每轮模型调用 / 工具 / 结果）可回放 `sai replay` | ✅ v2/M2 |
+| 📊 | **评测套件**：31 条真实历史通知考卷 + 基线回归比对，改提示词后防退化（真跑 100% 准确率） | ✅ v2/M2 |
+| 🔌 | **端口化架构**：爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档全部面向接口，换实现只改装配根 | ✅ 持续 |
+| 🧪 | **三层测试**：99 项离线（不联网不花钱）+ 4 项显式联网验收 | ✅ 持续 |
 
 ## 🚀 快速开始
 
@@ -98,20 +102,24 @@ DDD 洋葱四层 + 装配根，依赖只能从外向内；所有外部能力（�
 
 ```mermaid
 flowchart TD
-    P[presentation 呈现层<br/>FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具]
-    A --> D[domain 领域层<br/>实体 + 端口]
-    I[infrastructure 基础设施层<br/>爬虫 / LLM / 存储 / 搜索] -. 实现端口 .-> D
+    P[presentation 呈现层<br/>FastAPI / sai CLI] --> A[application 应用层<br/>用例 / AgentScope 接驳 / 工具<br/>CostMeter 计价 / TaskRecorder 会话记录 / 评测]
+    A --> D[domain 领域层<br/>实体 + 八个端口]
+    I[infrastructure 基础设施层<br/>爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档] -. 实现端口 .-> D
     C[composition.py 装配根] -. 创建并注入实现 .-> P
 ```
 
-识别比赛的三级流水线（**5 条通知通常只花 1 次 LLM 调用**）：
+每个 LLM 任务自动带上三件横切装备（装配根注入，用例无感）：**CostMeter** 记账+预算熔断、**TaskRecorder** 轨迹存档、**ContextConfig** 上下文压缩（ADR-003）。
+
+识别比赛的三级流水线 + 记忆缓存（**10 条通知通常只花 2-3 次 LLM 调用，重复扫描 0 次**）：
 
 ```mermaid
 flowchart LR
     A[通知进站] --> B{关键词粗筛<br/>零成本}
     B -->|没沾比赛词| X[判非比赛]
     B -->|命中| C[补抓详情页]
-    C --> D[LLM 单次结构化调用<br/>JSON 卡片 + 原文证据]
+    C --> F{查持久记忆<br/>判过且正文没变?}
+    F -->|命中| E2[直接用记住的结论<br/>0 次调用]
+    F -->|没有| D[LLM 单次结构化调用<br/>JSON 卡片 + 原文证据<br/>结论写回记忆]
     D --> E[比赛卡片]
 ```
 
@@ -120,15 +128,16 @@ flowchart LR
 
 ```
 src/contest_agent/
-├── domain/            # 实体 + 四个端口（洋葱芯，零外部依赖）
-├── application/       # 用例 + AgentScope 接驳层 + 关键词粗筛 + 提示词
-├── infrastructure/    # 爬虫 / LLM / 存储 / 搜索（实现端口）
+├── domain/            # 实体 + 八个端口（洋葱芯，零外部依赖）
+├── application/       # 用例 + AgentScope 接驳层 + 粗筛 + 提示词
+│                      # + cost.py 计价器 + recorder.py 会话记录 + 评测套件
+├── infrastructure/    # 爬虫 / LLM / 存储 / 搜索 / 记忆 / 会话存档（实现端口）
 ├── presentation/      # FastAPI server + sai CLI 薄壳
 ├── composition.py     # 装配根：唯一知道具体实现的地方
 └── settings.py        # 环境优先配置（env > config.yaml > 默认值）
-config.yaml            # 站点源 + CSS 选择器 + 模型档案（全配置化）
-tests/fixtures/        # 真实页面样本：解析器离线可测
-docs/adr/              # 架构决策记录
+config.yaml            # 站点源 + CSS 选择器 + 模型档案（含单价/路由/预算/压缩阈值）
+tests/fixtures/        # 真实页面样本 + eval_identify.json 评测考卷（31 条真实通知）
+docs/adr/              # 架构决策记录（ADR-001/002/003）
 ```
 
 </details>
@@ -142,7 +151,10 @@ docs/adr/              # 架构决策记录
 - [x] **P4** 手写 harness：ReAct 循环 + 工具注册 + Skill 生成参赛材料
 - [x] **P5** 学习路径：考试型比赛备考路径（强制真实引用校验）
 - [x] **P6** 发布闭环：完整 API、回归测试、tag v0.1.0
-- [ ] **v2** 上下文管理 / 记忆 / 成本台账 / 评测套件 / 多校源
+- [x] **v2/M1** 成本台账（`sai cost`）+ 预算闸门 + 模型路由 + 上下文压缩（ADR-003）
+- [x] **v2/M2** 持久记忆（二次扫描 0 调用）+ 会话存档回放 + 评测套件（基线防退化）
+- [ ] **v2/M3** 子代理 / 权限门 / 定时推送（条件触发，到触发条件再做）
+- [ ] **v2/M4** 前端（SSE 流式）/ python-pptx 真实文件 / 多校源
 
 ## 🎓 这也是一个学习项目
 
