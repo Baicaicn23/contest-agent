@@ -26,7 +26,7 @@ export default function CoworkHome({ userName, onOpenChat }) {
   return (
     <div className="cowork-hero">
       <div className="hero-title">
-        <Logo size={46} />
+        <Logo size={46} className="logo" />
         <h1 className="greeting-serif">你来了，{userName}！</h1>
       </div>
 

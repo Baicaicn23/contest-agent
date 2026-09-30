@@ -9,7 +9,7 @@ export default function CodeHome({ userName, onOpenChat }) {
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <div className="greeting">
-          <Logo size={32} />
+          <Logo size={32} className="logo" />
           <h1>接下来做什么，{userName}？</h1>
         </div>
         <UsageCard />

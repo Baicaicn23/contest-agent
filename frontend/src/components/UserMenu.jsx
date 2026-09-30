@@ -66,7 +66,7 @@ export function UserBox({ onOpenSettings }) {
     <div className="user-box">
       {open && <UserMenu onOpenSettings={() => { setOpen(false); onOpenSettings() }} />}
       <button className="user-box-btn" onClick={() => setOpen(!open)}>
-        <Logo size={20} />
+        <span className="user-logo"><Logo size={20} /></span>
         <span className="who">
           momo <span className="sub">· 本地</span>
         </span>

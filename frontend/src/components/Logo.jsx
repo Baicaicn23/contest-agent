@@ -1,6 +1,6 @@
 // 品牌标志：橙色米字花（对应截图左上角与问候语旁的 asterisk）。
-// 用 SVG 手绘 12 根辐条，颜色跟 currentColor 走，粗细由 size 控制。
-export default function Logo({ size = 24 }) {
+// 用 SVG 手绘 12 根辐条，颜色跟 currentColor 走——外层给 .logo 类即品牌橙。
+export default function Logo({ size = 24, className = '' }) {
   const spokes = []
   for (let i = 0; i < 12; i++) {
     const angle = (i * 30 * Math.PI) / 180
@@ -14,7 +14,8 @@ export default function Logo({ size = 24 }) {
     )
   }
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24"
+         className={className} aria-hidden="true">
       {spokes}
     </svg>
   )
