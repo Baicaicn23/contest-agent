@@ -31,6 +31,7 @@ from .application.usecases.memory_report import MemoryReport
 from .application.usecases.plan_study_path import PlanStudyPath
 from .application.usecases.scan_site import ScanSite
 from .application.usecases.session_report import SessionReport
+from .application.usecases.watch_site import WatchSite
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .infrastructure.persistence.repository import (
@@ -40,6 +41,7 @@ from .infrastructure.persistence.repository import (
     SqliteSessionRepository,
     SqliteUsageRepository,
 )
+from .infrastructure.push.pushers import build_pushers
 from .infrastructure.search.web_search import BingSearch
 from .presentation.server import Usecases, create_app
 from .settings import PROJECT_ROOT, Settings, load_settings
@@ -58,6 +60,7 @@ __all__ = [
     "build_memory_repository",
     "build_notice_repository",
     "build_notice_source",
+    "build_permission_gate",
     "build_plan_study_path_usecase",
     "build_report_usecase",
     "build_scan_usecase",
@@ -66,6 +69,7 @@ __all__ = [
     "build_task_recorder",
     "build_usage_repository",
     "build_usecases",
+    "build_watch_usecase",
 ]
 
 
@@ -121,6 +125,21 @@ def build_session_repository() -> SqliteSessionRepository:
 def build_task_recorder(task_type: str, note: str = "") -> TaskRecorder:
     """开一个新任务会话并返回记录器（M2）。CLI 每次跑任务时调一次。"""
     return TaskRecorder(build_session_repository(), task_type, note)
+
+
+def build_permission_gate():
+    """组装权限门（M3）：两个名单来自 config.yaml 的 permissions 段。
+
+    interactive 不传 = 自动探测（stdin 连着终端才算有人）。
+    """
+    from .application.harness.permission_gate import PermissionGate
+
+    settings = load_settings_or_raise()
+    perms = settings.yaml_config.permissions
+    return PermissionGate(
+        confirm_tools=perms.confirm_tools,
+        unattended_deny_tools=perms.unattended_deny_tools,
+    )
 
 
 def build_cost_meter(
@@ -225,6 +244,29 @@ def build_eval_usecase(dataset_path=None) -> EvaluateIdentification:
     return EvaluateIdentification(llm=llm, dataset_path=dataset_path, meter=meter)
 
 
+def build_watch_usecase(note: str = "") -> WatchSite:
+    """组装 watch 用例（M3 定时推送）：识别 + 所有已启用的推送通道。
+
+    识别部分和 sai identify 完全同款（路由 + 计价 + 记忆 + 会话），
+    所以定时跑的每次盯梢同样便宜、同样有轨迹可回放。
+    推送通道按 config.yaml 的 push 段装配，一个都没配 = 只识别不外推。
+    """
+    settings = load_settings_or_raise()
+    recorder = build_task_recorder("watch", note)
+    profile = settings.profile_for_task("identify")
+    meter = build_cost_meter(settings, profile, "identify", note,
+                             session_id=recorder.session_id)
+    llm = OpenAiCompatLlm(profile, meter=meter, recorder=recorder)
+    identify = IdentifyCompetitions(
+        build_notice_source(),
+        llm,
+        build_competition_repository(),
+        memory=build_memory_repository(),
+        recorder=recorder,
+    )
+    return WatchSite(identify=identify, pushers=build_pushers(settings.yaml_config.push))
+
+
 def _build_context_config():
     """按配置生成 AgentScope 的上下文压缩配置（M1）。
 
@@ -256,6 +298,7 @@ def build_generate_material_usecase(output_dir: Path | None = None, note: str = 
                                session_id=recorder.session_id),
         context_config=_build_context_config(),
         recorder=recorder,
+        gate=build_permission_gate(),
     )
 
 
@@ -266,19 +309,27 @@ def build_search() -> BingSearch:
 
 
 def build_plan_study_path_usecase(output_dir: Path | None = None, note: str = "") -> PlanStudyPath:
-    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价 + M2 会话）。"""
+    """组装 plan_study_path 用例：模型档案 + 搜索 + 卡片仓储（P5 + M1 计价 + M2 会话 + M3 研究分身）。
+
+    digest_llm（研究分身的 LLM 客户端）与主循环共用同一个计价器和会话
+    记录器——分身调用的花费记在同一本账、同一份轨迹里，不会另立山头。
+    """
     settings = load_settings_or_raise()
     profile = settings.profile_for_task("study_path")
     recorder = build_task_recorder("study_path", note)
+    meter = build_cost_meter(settings, profile, "study_path", note,
+                             session_id=recorder.session_id)
+    digest_llm = OpenAiCompatLlm(profile, meter=meter, recorder=recorder)
     return PlanStudyPath(
         profile=profile,
         search=build_search(),
         competition_repository=build_competition_repository(),
         output_dir=output_dir or (PROJECT_ROOT / "output"),
-        meter=build_cost_meter(settings, profile, "study_path", note,
-                               session_id=recorder.session_id),
+        meter=meter,
         context_config=_build_context_config(),
         recorder=recorder,
+        digest_llm=digest_llm,
+        gate=build_permission_gate(),
     )
 
 

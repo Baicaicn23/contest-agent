@@ -229,13 +229,19 @@ def _with_recording(func: Callable[..., str], recorder) -> Callable[..., str]:
     return wrapper
 
 
-async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None) -> None:
-    """注册工具的统一入口：先套截断外壳、再套记录外壳，最后授权挂进工具箱。
+async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None, gate=None) -> None:
+    """注册工具的统一入口：按序套壳，最后以无人值守授权挂进工具箱。
 
-    所有工具都从这里过，保证"统一截断"一个都不漏——
+    壳的顺序（从里到外）：截断 -> 权限门 -> 会话记录。
+    - 权限门在截断之外：拒绝时短路，原函数和截断都不执行；
+    - 记录在最外：模型实际收到的东西（含权限门的拒绝理由）都进轨迹，
+      回放时看得到"模型被拦了"。
+    所有工具都从这里过，保证壳一个不漏——
     如果各处直接调 toolkit.add_tool，很快就会有人忘了包外壳。
     """
     wrapped = _with_truncation(func)
+    if gate is not None:
+        wrapped = gate.wrap(wrapped)
     if recorder is not None:
         wrapped = _with_recording(wrapped, recorder)
     await toolkit.add_tool(FunctionTool(func=wrapped, permission=ALLOWED))
@@ -270,6 +276,7 @@ async def build_material_tools(
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
     recorder=None,
+    gate=None,
 ) -> MaterialTools:
     """把三件工具注册进 AgentScope 的 Toolkit（异步：框架要求）。
 
@@ -277,6 +284,7 @@ async def build_material_tools(
     类型标注提取，所以注释写得越清楚，模型用得越准。
     trace 列表由各闭包写入，跑完后供 CLI 播报"agent 干了什么"。
     recorder 不为 None 时，每次工具调用还会写一条会话事件（M2）。
+    gate 不为 None 时，名单内的工具过权限门（M3）。
     """
     tools = MaterialTools(toolkit=Toolkit())
 
@@ -311,8 +319,8 @@ async def build_material_tools(
         "save_material": save_material,
     }
     for func in functions.values():
-        # 统一入口注册：套截断外壳 + 记录外壳 + 无人值守授权（见 _add_tool 注释）
-        await _add_tool(tools.toolkit, func, recorder)
+        # 统一入口注册：截断壳 + 权限门 + 记录壳 + 无人值守授权（见 _add_tool 注释）
+        await _add_tool(tools.toolkit, func, recorder, gate)
     tools.functions = functions
     return tools
 
@@ -322,8 +330,16 @@ async def build_study_tools(
     competition_repository: CompetitionRepositoryPort,
     output_dir: Path,
     recorder=None,
+    digest_llm=None,
+    gate=None,
 ) -> MaterialTools:
-    """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。"""
+    """备考路径任务的工具箱：联网搜索 + 读网页 + 落盘 + 查卡片（P5）。
+
+    M3 起多一件 research_digest（研究分身）：它内部自己跑一遍
+    "搜索 -> 精读 -> 单次结构化调用汇总"，只把千字摘要交还给主循环——
+    主对话不再被几十页原文塞满。digest_llm 是分身专用的 LLM 客户端
+    （结构和主循环同款，计价器/会话记录是同一个，花费合并算账）。
+    """
 
     tools = MaterialTools(toolkit=Toolkit())
 
@@ -342,6 +358,45 @@ async def build_study_tools(
         """读取一个网页的正文内容，用于确认链接真实可用、内容相关后再引用。url 填完整网址。"""
         tools.trace.append(f"read_page({url})")
         return search.read_page(url)
+
+    def research_digest(topic: str) -> str:
+        """派"研究分身"调研一个主题：自动搜索 + 精读网页 + 汇总成带网址的调研摘要。
+        topic 填研究主题（如 '蓝桥杯 备考经验'）。想快速了解一个主题时优先用它，
+        比自己 search_web + read_page 逐页看省得多。"""
+        from ..prompts import DIGEST_SCHEMA, DIGEST_SYSTEM_PROMPT
+
+        tools.trace.append(f"research_digest({topic!r})")
+        if digest_llm is None:
+            return "研究分身未装配（缺少摘要模型），请改用 search_web + read_page 自己调研。"
+
+        # 分身第 1 步：搜索，取前 3 条线索
+        results = search.search(topic, top_k=3)
+        if not results:
+            return "搜索没有返回结果（可能网络波动），请换个搜索词重试。"
+
+        # 分身第 2 步：精读前 2 个页面（每页最多 2000 字），拼成材料包
+        materials = []
+        for item in results[:2]:
+            page = search.read_page(item["url"], max_chars=2000)
+            materials.append(f"【来源】{item['title']}（{item['url']}）\n{page}")
+
+        # 分身第 3 步：一次结构化调用，把材料压成摘要
+        # （这就是"子代理"：分身有自己的输入输出，主循环永远看不到原文，只看摘要）
+        digest = digest_llm.complete_structured(
+            system=DIGEST_SYSTEM_PROMPT,
+            user="\n\n".join(materials) + f"\n\n研究主题：{topic}",
+            schema=DIGEST_SCHEMA,
+        )
+
+        # 分身第 4 步：把结构化摘要渲染成文本交还主循环
+        lines = [f"【概述】{digest.get('summary', '')}"]
+        for point in digest.get("key_points", []):
+            lines.append(f"- {point}")
+        urls = digest.get("useful_urls", [])
+        if urls:
+            lines.append("【有用网址】")
+            lines.extend(f"  {u}" for u in urls)
+        return "\n".join(lines)
 
     save_material = _make_save_material(output_dir, tools.trace)
 
@@ -363,11 +418,12 @@ async def build_study_tools(
     functions = {
         "search_web": search_web,
         "read_page": read_page,
+        "research_digest": research_digest,
         "save_material": save_material,
         "list_competitions": list_competitions,
     }
     for func in functions.values():
-        await _add_tool(tools.toolkit, func, recorder)
+        await _add_tool(tools.toolkit, func, recorder, gate)
     tools.functions = functions
     return tools
 

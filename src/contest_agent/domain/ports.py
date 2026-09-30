@@ -158,6 +158,24 @@ class SessionArchivePort(Protocol):
         ...
 
 
+class PushPort(Protocol):
+    """能力九：能把一条通知推送到外部（M3 由 infrastructure/push 实现）。
+
+    "自动盯官网"的最后一步：发现了新比赛，得有人告诉你——
+    webhook / 邮件 / 本地文件，谁配置了就用谁，业务不关心通道细节。
+    """
+
+    def send(self, title: str, content: str) -> None:
+        """推送一条通知。失败抛异常（由调用方决定降级策略——
+        一个通道挂了不能影响其他通道）。"""
+        ...
+
+    @property
+    def channel_name(self) -> str:
+        """通道名（webhook / smtp / file），推送结果播报用。"""
+        ...
+
+
 class SearchPort(Protocol):
     """能力四：会联网搜索、读网页、验证链接，而且失败了不炸（P5 由 infrastructure/search 实现）。
 

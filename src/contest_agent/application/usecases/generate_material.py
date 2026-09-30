@@ -70,6 +70,7 @@ class GenerateMaterial:
         meter=None,
         context_config=None,
         recorder=None,
+        gate=None,
     ):
         self.profile = profile
         self.source = source
@@ -78,11 +79,12 @@ class GenerateMaterial:
         self.max_iters = max_iters
         # runner 可注入：生产用 AgentScope 门面，测试用假 runner
         self.runner: DefaultRunner = runner or run_material_generation
-        # M1/M2 可选注入：计价器（记账+熔断）、上下文压缩配置、会话记录器。
-        # 类型标注从简：CostMeter/ContextConfig/TaskRecorder 分属应用层与框架，这里只做搬运工
+        # M1/M2/M3 可选注入：计价器、压缩配置、会话记录器、权限门。
+        # 类型标注从简：各类型分属应用层与框架，这里只做搬运工
         self.meter = meter
         self.context_config = context_config
         self.recorder = recorder
+        self.gate = gate
 
     def execute(
         self, skill_name: str, competition_name: str | None = None
@@ -128,6 +130,7 @@ class GenerateMaterial:
                 competition_repository=self.competition_repository,
                 output_dir=self.output_dir,
                 recorder=self.recorder,
+                gate=self.gate,
             )
 
         outcome, tools = self.runner(
