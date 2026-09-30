@@ -9,6 +9,8 @@
     GET  /competitions  查询已识别的比赛卡片
     GET  /report        获取 Markdown 情报报告
     GET  /cost          查询 LLM 成本台账（M1）
+    GET  /sessions      最近任务会话列表（M2）
+    GET  /sessions/{id} 一个会话的完整轨迹回放（M2）
     POST /generate      生成参赛材料（AgentScope 循环，耗时 30-90 秒）
     POST /study-path    生成备考路径（联网搜索 + 引用校验，耗时 40-90 秒）
 
@@ -27,6 +29,7 @@ from pydantic import BaseModel
 
 from ..application.usecases.cost_report import TASK_TYPES, CostReport
 from ..application.usecases.generate_material import GenerateMaterial
+from ..application.usecases.session_report import SessionReport
 from ..application.usecases.generate_report import GenerateReport
 from ..application.usecases.identify_competitions import IdentifyCompetitions
 from ..application.usecases.plan_study_path import PlanStudyPath
@@ -46,6 +49,7 @@ class Usecases:
     identify: IdentifyCompetitions | None = None
     report: GenerateReport | None = None
     cost_report: CostReport | None = None
+    sessions: SessionReport | None = None
     generate_material: GenerateMaterial | None = None
     study_path: PlanStudyPath | None = None
 
@@ -183,6 +187,56 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
             "total": _task_cost_to_dict(summary.total),
             "by_task": {name: _task_cost_to_dict(c) for name, c in summary.by_task.items()},
             "by_model": {name: _task_cost_to_dict(c) for name, c in summary.by_model.items()},
+        }
+
+    @app.get("/sessions")
+    def sessions(limit: int = 20) -> dict:
+        """最近的任务会话列表（M2）：编号、任务、状态、事件数、花费。"""
+        if usecases is None or usecases.sessions is None:
+            raise HTTPException(503, "会话查询未装配")
+        items = usecases.sessions.list_recent(limit=limit)
+        return {
+            "count": len(items),
+            "sessions": [
+                {
+                    "id": s.id,
+                    "task_type": s.task_type,
+                    "note": s.note,
+                    "status": s.status,
+                    "started_at": s.started_at.isoformat() if s.started_at else None,
+                    "ended_at": s.ended_at.isoformat() if s.ended_at else None,
+                    "event_count": s.event_count,
+                    "cost_yuan": s.cost_yuan,
+                    "llm_calls": s.llm_calls,
+                }
+                for s in items
+            ],
+        }
+
+    @app.get("/sessions/{session_id}")
+    def session_detail(session_id: int) -> dict:
+        """一个会话的完整轨迹（M2）：按序排好的全部事件，回放用。"""
+        if usecases is None or usecases.sessions is None:
+            raise HTTPException(503, "会话查询未装配")
+        try:
+            summary, events = usecases.sessions.detail(session_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error))
+        return {
+            "session": {
+                "id": summary.id,
+                "task_type": summary.task_type,
+                "note": summary.note,
+                "status": summary.status,
+                "started_at": summary.started_at.isoformat() if summary.started_at else None,
+                "ended_at": summary.ended_at.isoformat() if summary.ended_at else None,
+                "cost_yuan": summary.cost_yuan,
+            },
+            "events": [
+                {"seq": e.seq, "kind": e.kind, "payload": e.payload,
+                 "created_at": e.created_at.isoformat() if e.created_at else None}
+                for e in events
+            ],
         }
 
     @app.post("/generate")

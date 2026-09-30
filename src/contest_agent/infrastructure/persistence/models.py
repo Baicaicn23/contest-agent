@@ -76,3 +76,46 @@ class UsageRecordModel(Base):
     note: Mapped[str] = mapped_column(String(512), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
     # 按天查账也是高频操作（"今天花了多少"），同样建索引
+    # session_id 没建外键约束（SQLite 外键默认不启用，项目靠代码保证一致性），
+    # 也没建索引：按会话汇总只在回放单个任务时发生，全表扫可接受
+    session_id: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class MemoryModel(Base):
+    """memories 表：持久记忆（M2）。key 唯一，重复 remember = 覆盖更新。"""
+
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(768), unique=True, index=True)
+    # 768 而不是 512：key 里含完整通知 URL（512）+ 前缀，留足余量
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class SessionModel(Base):
+    """agent_sessions 表：一次任务会话（M2 会话存档）。一行 = 一次 sai 命令或一次接口调用。"""
+
+    __tablename__ = "agent_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task_type: Mapped[str] = mapped_column(String(32), index=True)
+    note: Mapped[str] = mapped_column(String(512), default="")
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    # running / completed / failed / budget_break
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class SessionEventModel(Base):
+    """session_events 表：会话内的一条事件。按 (session_id, seq) 排序即完整轨迹。"""
+
+    __tablename__ = "session_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(index=True)
+    seq: Mapped[int] = mapped_column(default=0)  # 会话内序号，仓储写入时自动递增
+    kind: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

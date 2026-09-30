@@ -69,6 +69,7 @@ class GenerateMaterial:
         runner: DefaultRunner | None = None,
         meter=None,
         context_config=None,
+        recorder=None,
     ):
         self.profile = profile
         self.source = source
@@ -77,15 +78,39 @@ class GenerateMaterial:
         self.max_iters = max_iters
         # runner 可注入：生产用 AgentScope 门面，测试用假 runner
         self.runner: DefaultRunner = runner or run_material_generation
-        # M1 可选注入：计价器（记账+熔断）与上下文压缩配置，原样透传给 runner。
-        # 类型标注从简：CostMeter/ContextConfig 分属应用层与框架，这里只做搬运工
+        # M1/M2 可选注入：计价器（记账+熔断）、上下文压缩配置、会话记录器。
+        # 类型标注从简：CostMeter/ContextConfig/TaskRecorder 分属应用层与框架，这里只做搬运工
         self.meter = meter
         self.context_config = context_config
+        self.recorder = recorder
 
     def execute(
         self, skill_name: str, competition_name: str | None = None
     ) -> MaterialResult:
-        """执行生成。competition_name 不给就取库里截止日期最近的一张卡。"""
+        """执行生成。competition_name 不给就取库里截止日期最近的一张卡。
+
+        M2 起全程写会话事件：无论成败，sai replay 都能回放这次任务。
+        """
+        try:
+            result = self._execute_inner(skill_name, competition_name)
+        except Exception as error:
+            if self.recorder is not None:
+                self.recorder.log("error", error=str(error))
+                self.recorder.finish("failed")
+            raise
+        if self.recorder is not None:
+            if result.success:
+                self.recorder.finish("completed")
+            elif result.error and "预算熔断" in result.error:
+                self.recorder.finish("budget_break")
+            else:
+                self.recorder.finish("failed")
+        return result
+
+    def _execute_inner(
+        self, skill_name: str, competition_name: str | None = None
+    ) -> MaterialResult:
+        """真正的生成流程（execute 只负责会话状态盖章这一层壳）。"""
         skill = load_skill(skill_name)
         card = self._pick_card(competition_name)
 
@@ -102,6 +127,7 @@ class GenerateMaterial:
                 source=self.source,
                 competition_repository=self.competition_repository,
                 output_dir=self.output_dir,
+                recorder=self.recorder,
             )
 
         outcome, tools = self.runner(
@@ -112,6 +138,7 @@ class GenerateMaterial:
             max_iters=self.max_iters,
             meter=self.meter,
             context_config=self.context_config,
+            recorder=self.recorder,
         )
 
         return MaterialResult(

@@ -68,6 +68,7 @@ class CostMeter:
         repository: UsageRepositoryPort | None = None,
         budget_yuan: float | None = None,
         note: str = "",
+        session_id: int | None = None,
     ):
         self.profile = profile
         self.task_type = task_type
@@ -76,6 +77,9 @@ class CostMeter:
         # budget_yuan None = 不限预算；配了就逐笔累计、超线熔断
         self.budget_yuan = budget_yuan
         self.note = note
+        # 所属会话编号（M2 会话存档）：盖在每笔流水上，
+        # "这个任务花了多少钱"就能直接按 session_id 汇总出台账
+        self.session_id = session_id
 
         self.spent_yuan: float = 0.0   # 本任务已累计花费（元）
         self.call_count: int = 0       # 本任务已调用次数
@@ -123,6 +127,7 @@ class CostMeter:
                     completion_tokens=completion_tokens,
                     cost_yuan=cost,
                     note=self.note,
+                    session_id=self.session_id,
                 )
             )
         return cost

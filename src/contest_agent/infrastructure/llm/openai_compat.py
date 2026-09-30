@@ -55,11 +55,14 @@ class OpenAiCompatLlm:
     全项目只有这里看得见它。
     """
 
-    def __init__(self, profile: ModelProfile, client: OpenAI | None = None, meter=None):
+    def __init__(self, profile: ModelProfile, client: OpenAI | None = None, meter=None, recorder=None):
         self.profile = profile
         # meter 的类型标注从简（CostMeter 在 application 层，infrastructure 引用它
         # 方向合法，但不标注类型可以避免"infra 必须知道 application 细节"的耦合）
         self.meter = meter
+        # recorder（TaskRecorder，M2）：把每次结构化调用也写进会话轨迹。
+        # 识别会话的回放由此才有"模型调用"事件（agent 循环那边的在代理里记）
+        self.recorder = recorder
 
         # 密钥必须在构造时检查清楚：等到调用才报错，排查起来绕得远
         api_key = profile.resolve_api_key()
@@ -89,16 +92,17 @@ class OpenAiCompatLlm:
         if self.meter is not None:
             self.meter.precheck()
 
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
         last_error: Exception | None = None
         response = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = self._client.chat.completions.create(
                     model=self.profile.model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
+                    messages=messages,
                     response_format={"type": "json_object"},
                     temperature=0,
                 )
@@ -118,6 +122,14 @@ class OpenAiCompatLlm:
             self.meter.record(
                 prompt_tokens=response.usage.prompt_tokens,
                 completion_tokens=response.usage.completion_tokens,
+            )
+        # 会话事件（M2）：这次结构化调用的用量进轨迹，回放时看得到每一步花了多少
+        if self.recorder is not None and response.usage is not None:
+            self.recorder.log(
+                "model_call",
+                messages=len(messages),
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
             )
         return parse_json_loose(response.choices[0].message.content)
 

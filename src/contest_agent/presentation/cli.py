@@ -5,11 +5,15 @@
 
 用法（装好依赖后，用 uv run sai xxx 执行）：
     sai scan                 扫描官网通知并识别比赛（P1/P2 实现后可用）
-    sai identify             扫描 + LLM 识别比赛卡片（P2/P3）
+    sai identify             扫描 + LLM 识别比赛卡片（P2/P3，M2 起命中记忆免费）
     sai report               渲染比赛情报报告（P3）
     sai generate             生成参赛材料（AgentScope 循环，P4）
     sai study-path           生成备考路径（P5）
     sai cost                 查 LLM 花费账单（M1 成本台账）
+    sai memory               查看/清理持久记忆（M2）
+    sai sessions             列出最近任务会话（M2）
+    sai replay 编号          回放一次任务的完整轨迹（M2）
+    sai eval                 识别能力评测 + 防退化比对（M2）
     sai model                查看模型档案列表（带 * 的是当前生效档案）
     sai model use qwen       切换模型档案（P2 接入 LLM 工厂时实现）
     sai serve                启动 FastAPI 服务（默认 127.0.0.1:8000）
@@ -78,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     # 子命令六：sai cost [--task 名] [--today | --date 日期]（M1：查成本台账）
     cost = sub.add_parser("cost", help="查 LLM 花费账单（识别 10 条通知花了多少钱就问它）")
     cost.add_argument(
-        "--task", default=None, choices=["identify", "generate", "study_path"],
+        "--task", default=None, choices=["identify", "generate", "study_path", "eval"],
         help="只看某个任务的账单（默认全部任务）",
     )
     cost.add_argument(
@@ -87,6 +91,25 @@ def build_parser() -> argparse.ArgumentParser:
     cost.add_argument(
         "--date", default=None, metavar="YYYY-MM-DD", help="只看指定某天的账单"
     )
+
+    # 子命令七：sai memory [list | clear]（M2：查看/清理持久记忆）
+    memory = sub.add_parser("memory", help="查看或清理系统的持久记忆（识别结论缓存）")
+    memory.add_argument("action", nargs="?", default="list", choices=["list", "clear"])
+
+    # 子命令八：sai sessions [--limit N] / sai replay 编号（M2：会话存档回放）
+    sessions = sub.add_parser("sessions", help="列出最近的任务会话（每次 sai 任务一条）")
+    sessions.add_argument("--limit", type=int, default=20, help="最多列多少条（默认 20）")
+    replay = sub.add_parser("replay", help="回放一次任务的完整轨迹（编号见 sai sessions）")
+    replay.add_argument("session_id", type=int, help="要回放的会话编号")
+
+    # 子命令九：sai eval [--save]（M2：识别能力评测 + 防退化比对）
+    evl = sub.add_parser("eval", help="用 30 条历史通知考识别能力，并和基线比对防退化")
+    evl.add_argument("--save", action="store_true",
+                     help="把本次成绩存为基线（首次运行用；之后的运行自动和基线比对）")
+    evl.add_argument("--limit", type=int, default=None,
+                     help="只考前 N 条（默认全卷 30 条）")
+    evl.add_argument("--dataset", default=None, metavar="路径",
+                     help="自定义考卷路径（默认 tests/fixtures/eval_identify.json）")
 
     # 子命令二：sai model [list | use 档案名]
     model = sub.add_parser("model", help="查看或切换模型档案")
@@ -169,7 +192,7 @@ def _run_identify(args: argparse.Namespace) -> int:
     from ..composition import build_identify_usecase
 
     try:
-        usecase = build_identify_usecase()
+        usecase = build_identify_usecase(note=f"limit={args.limit}")
         outcomes = usecase.execute(limit=args.limit)
     except (ConnectionError, RuntimeError) as error:
         # RuntimeError 多为密钥没配；ConnectionError 是网络/重试耗尽
@@ -178,10 +201,15 @@ def _run_identify(args: argparse.Namespace) -> int:
 
     competition_count = sum(1 for o in outcomes if o.is_competition)
     llm_count = sum(1 for o in outcomes if o.llm_called)
-    print(
+    memory_count = sum(1 for o in outcomes if o.from_memory)
+    summary_line = (
         f"共扫描 {len(outcomes)} 条通知，识别出比赛 {competition_count} 条"
-        f"（粗筛挡下 {len(outcomes) - llm_count} 条，实际调用 LLM {llm_count} 次）\n"
+        f"（粗筛挡下 {len(outcomes) - llm_count - memory_count} 条，"
+        f"实际调用 LLM {llm_count} 次"
     )
+    if memory_count:
+        summary_line += f"，记忆命中省下 {memory_count} 次调用"
+    print(summary_line + "）\n")
 
     # P3 起识别出的卡片会幂等入库，把账目亮出来
     if usecase.last_sync:
@@ -198,6 +226,8 @@ def _run_identify(args: argparse.Namespace) -> int:
     type_names = {"deliverable": "交付物型", "exam": "考试型"}
     for number, outcome in enumerate(outcomes, start=1):
         mark = "✅ 比赛  " if outcome.is_competition else "❌ 非比赛"
+        if outcome.from_memory:
+            mark = "💾 记忆  "  # 结论直接来自持久记忆，这次没花 LLM 的钱
         print(f"{number:>2}. {mark} | {outcome.notice.title}")
         print(f"     {outcome.notice.source_url}")
         print(f"     理由：{outcome.reason}")
@@ -389,6 +419,194 @@ def _run_cost(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_memory(args: argparse.Namespace) -> int:
+    """执行 sai memory：查看或清理持久记忆（M2）。
+
+    系统记了什么必须对人可见——记忆不可见就成了黑魔法；
+    记错了（比如粗筛词表大改后旧结论过时）要有办法一键清空重学。
+    """
+    from ..composition import build_memory_report_usecase
+
+    report = build_memory_report_usecase()
+
+    if args.action == "clear":
+        removed = report.clear()
+        print(f"已清空持久记忆：删掉 {removed} 条。下次识别会重新调 LLM 学习结论。")
+        return 0
+
+    count = report.count()
+    if count == 0:
+        print("（记忆是空的。跑一次 sai identify 后，判断结论就会存进来）")
+        return 0
+
+    print(f"持久记忆共 {count} 条（最近 {min(count, 50)} 条）：\n")
+    for entry in report.entries(limit=50):
+        value = entry.value or {}
+        mark = "✅ 比赛" if value.get("is_competition") else "❌ 非比赛"
+        key = entry.key.removeprefix("verdict:")
+        updated = entry.updated_at.strftime("%m-%d %H:%M") if entry.updated_at else "??"
+        print(f" [{updated}] {mark} | {key}")
+        reason = (value.get("reason") or "")[:60]
+        if reason:
+            print(f"          {reason}")
+    print("\n清空请执行：uv run sai memory clear")
+    return 0
+
+
+def _run_sessions(args: argparse.Namespace) -> int:
+    """执行 sai sessions：列出最近的任务会话（M2）。"""
+    from ..composition import build_session_report_usecase
+
+    items = build_session_report_usecase().list_recent(limit=args.limit)
+    if not items:
+        print("（还没有任务会话。跑一次 sai identify / generate / study-path 再来看）")
+        return 0
+
+    status_names = {
+        "running": "进行中", "completed": "完成",
+        "failed": "失败", "budget_break": "预算熔断",
+    }
+    print(f"最近 {len(items)} 个任务会话（新任务在前）：\n")
+    for s in items:
+        started = s.started_at.strftime("%m-%d %H:%M") if s.started_at else "??"
+        # 诚实的三种花费显示：0 次调用就是 ¥0；有调用没配单价才是"未知"
+        if s.llm_calls == 0:
+            cost = "¥0（0 次调用）"
+        elif s.cost_yuan is not None:
+            cost = f"¥{s.cost_yuan:.4f}"
+        else:
+            cost = f"¥?（{s.llm_calls} 次未配单价）"
+        print(
+            f" #{s.id:<4} {status_names.get(s.status, s.status):<5} "
+            f"{s.task_type:<11} 事件 {s.event_count:>3} 条  {cost:<16} {started}  {s.note}"
+        )
+    print("\n回放某个会话的完整轨迹：uv run sai replay 会话编号")
+    return 0
+
+
+def _run_replay(args: argparse.Namespace) -> int:
+    """执行 sai replay：按事件序号回放一次任务的完整轨迹（M2）。
+
+    回放的价值：agent 干了什么不再靠猜——哪轮模型调用花了多少 token、
+    调了什么工具、拿到什么结果、有没有触发压缩，一条条摆出来。
+    这是 agent 产品透明度底线（CLI 播报工具轨迹）的加强版。
+    """
+    from ..composition import build_session_report_usecase
+
+    try:
+        summary, events = build_session_report_usecase().detail(args.session_id)
+    except KeyError as error:
+        print(f"回放失败：{error}")
+        return 1
+
+    status_names = {
+        "running": "进行中", "completed": "完成",
+        "failed": "失败", "budget_break": "预算熔断",
+    }
+    print(f"会话 #{summary.id} ｜ 任务：{summary.task_type} ｜ "
+          f"状态：{status_names.get(summary.status, summary.status)} ｜ 备注：{summary.note}")
+    if summary.started_at:
+        ended = summary.ended_at.strftime("%H:%M:%S") if summary.ended_at else "未结束"
+        print(f"时间：{summary.started_at.strftime('%Y-%m-%d %H:%M:%S')} -> {ended}")
+    if summary.cost_yuan is not None:
+        print(f"本次任务花费：¥{summary.cost_yuan:.4f}")
+    print("=" * 62)
+
+    kind_names = {
+        "user_input": "输入", "model_call": "模型调用", "compression": "上下文压缩",
+        "tool_call": "工具调用", "result": "结果", "error": "错误",
+    }
+    for event in events:
+        name = kind_names.get(event.kind, event.kind)
+        payload = event.payload or {}
+        if event.kind == "user_input":
+            print(f"[{event.seq:>3}] {name}：{payload.get('text', '')[:80]}")
+        elif event.kind == "model_call":
+            print(
+                f"[{event.seq:>3}] {name}：{payload.get('messages', '?')} 条消息，"
+                f"输入 {payload.get('input_tokens', '?')} tok，"
+                f"输出 {payload.get('output_tokens', '?')} tok，"
+                f"产出块 {','.join(payload.get('blocks', [])) or '?'}"
+            )
+        elif event.kind == "tool_call":
+            args_text = ", ".join(f"{k}={v}" for k, v in (payload.get("args") or {}).items())
+            print(f"[{event.seq:>3}] {name}：{payload.get('tool', '?')}({args_text})")
+            print(f"      结果：{str(payload.get('result', ''))[:120]}")
+        elif event.kind == "compression":
+            print(f"[{event.seq:>3}] {name}：{payload.get('note', '')}")
+        elif event.kind == "error":
+            print(f"[{event.seq:>3}] {name}：{payload.get('error', '')}")
+        elif event.kind == "result":
+            # agent 循环的收尾事件带 final_text；识别的逐条结果带 is_competition——
+            # 两种任务共用一种事件类型，渲染时各认各的字段
+            if "final_text" in payload:
+                text = str(payload.get("final_text", ""))
+                print(f"[{event.seq:>3}] {name}：{text[:200]}{'…' if len(text) > 200 else ''}")
+            else:
+                mark = "✅ 比赛" if payload.get("is_competition") else "❌ 非比赛"
+                if payload.get("from_memory"):
+                    mark = "💾 记忆命中"
+                source = "LLM" if payload.get("llm_called") else "没动用 LLM"
+                print(f"[{event.seq:>3}] {name}：{mark} | {payload.get('title', '')[:50]}（{source}）")
+        else:
+            print(f"[{event.seq:>3}] {name}：{payload}")
+    print("=" * 62)
+    print(f"共 {len(events)} 条事件。工具结果在存档里截断到 2000 字，模型看到的也是截断后的。")
+    return 0
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    """执行 sai eval：识别能力考试 + 基线回归比对（M2）。
+
+    这是"改提示词必跑"制度的落点：改了 IDENTIFY_SYSTEM_PROMPT、
+    粗筛词表或模型路由后跑一次，准确率掉没掉、哪条判翻了，报告点名。
+    """
+    from pathlib import Path
+
+    from ..composition import build_eval_usecase
+
+    dataset_path = Path(args.dataset) if args.dataset else None
+    try:
+        usecase = build_eval_usecase(dataset_path=dataset_path)
+        report = usecase.execute(limit=args.limit)
+    except (RuntimeError, ValueError, FileNotFoundError) as error:
+        print(f"评测失败：{error}")
+        return 1
+
+    print(f"考卷：{report.total} 条真实历史通知 ｜ 实际调用 LLM {report.llm_calls} 次\n")
+    print(
+        f"是否比赛：准确率 {report.accuracy:.1%}  精确率 {report.precision:.1%}  "
+        f"召回率 {report.recall:.1%}  F1 {report.f1:.1%}"
+    )
+    if report.type_total:
+        print(f"比赛名称：{report.type_hits}/{report.type_total} 对上")
+    if report.deadline_total:
+        print(f"截止日期：{report.deadline_hits}/{report.deadline_total} 对上")
+
+    wrong = [r for r in report.items if not r.competition_correct]
+    if wrong:
+        print(f"\n判错的 {len(wrong)} 条：")
+        for r in wrong:
+            print(f"  ✗ {r.title}")
+            print(f"    期望比赛={r.expected_competition}，判成了比赛={r.predicted_competition}；{r.reason[:60]}")
+
+    # 基线比对（--save 先建基线；之后每次自动比对）
+    from ..application.usecases.evaluate_identification import compare_with_baseline, save_baseline
+
+    if args.save:
+        path = save_baseline(report)
+        print(f"\n已保存基线：{path}")
+    else:
+        comparison = compare_with_baseline(report)
+        print(f"\n回归比对：{comparison['message']}")
+        for line in comparison.get("regressions", []):
+            print(f"  ⚠️ 从对变错：{line}")
+        if comparison["status"] == "regressed":
+            print("  识别质量退化——如果这次改动不是故意的，请回滚提示词/配置。")
+        return 0 if comparison["status"] != "regressed" else 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 主入口。pyproject.toml 里注册的 sai 命令，最终执行的就是这个函数。
 
@@ -446,6 +664,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "cost":
         return _run_cost(args)
+
+    if args.command == "memory":
+        return _run_memory(args)
+
+    if args.command == "sessions":
+        return _run_sessions(args)
+
+    if args.command == "replay":
+        return _run_replay(args)
+
+    if args.command == "eval":
+        return _run_eval(args)
 
     if args.command == "serve":
         # uvicorn 是 FastAPI 官方配套的 Web 服务器，负责真正监听端口、处理 HTTP

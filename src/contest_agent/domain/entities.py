@@ -75,6 +75,51 @@ class UsageEntry:
     cost_yuan: float | None = None  # 折算费用（元）。档案没配单价时是 None（记不了钱但记得量）
     note: str = ""        # 备注哪个比赛/哪次扫描，方便对账
     created_at: datetime | None = None  # 记账时间；仓储写入时自动补当前时间
+    session_id: int | None = None   # 属于哪次任务会话（M2 会话存档）；老数据为 NULL
+
+
+@dataclass
+class MemoryEntry:
+    """一条持久记忆（M2）：key-value 形式的"系统学到的结论"。
+
+    典型用途：识别结论缓存——"某条通知已经判断过了，不是比赛，理由 X"。
+    下次再遇到同一条通知，直接翻记忆，不再花 LLM 的钱。
+    """
+
+    key: str              # 记忆的"地址"，如 "verdict:https://.../538809.shtml"
+    value: dict           # 记的内容（JSON 对象，字段随用途定）
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass
+class SessionEvent:
+    """会话里的一条事件（M2 会话存档）：任务轨迹的最小单位。
+
+    一个任务（一次 sai identify / generate）从头到尾的每一步——
+    用户输入、模型调用、工具调用、收尾——都拆成一条条事件记下来，
+    事后用 sai replay 能原样重看。
+    """
+
+    seq: int              # 事件序号（会话内从 1 递增，回放就按它排序）
+    kind: str             # 事件类型：user_input / model_call / compression / tool_call / result / error
+    payload: dict         # 事件内容（JSON 对象；各类型字段不同，见各埋点处的注释）
+    created_at: datetime | None = None
+
+
+@dataclass
+class SessionSummary:
+    """一次任务会话的概要（列表页用，不含事件明细）。"""
+
+    id: int                       # 会话编号（数据库自增，sai replay 用它定位）
+    task_type: str                # 任务类型：identify / generate / study_path
+    note: str                     # 备注（如 limit=10、比赛名）
+    status: str                   # running / completed / failed / budget_break
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    event_count: int = 0          # 事件条数（列表页一眼看出这个任务干了多少步）
+    cost_yuan: float | None = None  # 这次任务花了多少钱（按 session_id 汇总台账可得）
+    llm_calls: int = 0            # 这次任务实际调了几次 LLM（0 = 纯粗筛/纯记忆命中，没花钱）
 
 # 历史注记（v1.5）：P4 曾自研过 ToolCall / LlmReply 实体和手写 ReAct 循环，
 # v1.5 采纳 AgentScope 后由框架的消息模型接管（ADR-002）；
