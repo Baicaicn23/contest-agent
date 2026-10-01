@@ -12,6 +12,7 @@ import HomeView from './views/HomeView.jsx'
 import ChatView from './views/ChatView.jsx'
 import { UserBox } from './components/UserMenu.jsx'
 import UsageCard from './components/UsageCard.jsx'
+import { PanelIcon } from './components/Icon.jsx'
 
 // 应用外壳（M5 Codex 化）：图标栏 → 侧栏（项目树/最近/用户）→ 标签页 + 主区。
 // 视图 = 标签页里的聊天 / 首页 / 统计 / 截止日程 / 设置全页 / Customize。
@@ -36,6 +37,25 @@ export default function App() {
   const [toolPanel, setToolPanel] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light')
   const [fontSize, setFontSize] = useState(() => localStorage.getItem(FS_KEY) || 'medium')
+  // 侧栏折叠（M8）：记忆在 localStorage；收起后主区全宽，左上浮展开钮
+  const [sideCollapsed, setSideCollapsed] = useState(() => localStorage.getItem('ca-side-collapsed') === '1')
+  // 正在运行的会话（M8 侧栏树转圈）：ChatView 发消息时标记，结束/异常时解除
+  const [runningIds, setRunningIds] = useState(() => new Set())
+
+  const toggleSide = () => {
+    setSideCollapsed((c) => {
+      localStorage.setItem('ca-side-collapsed', c ? '0' : '1')
+      return !c
+    })
+  }
+  const handleRunning = (sessionId, running) => {
+    setRunningIds((prev) => {
+      const next = new Set(prev)
+      if (running) next.add(sessionId)
+      else next.delete(sessionId)
+      return next
+    })
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -50,6 +70,18 @@ export default function App() {
     setConfig(c); setAccessFull(!!c.access_full)
   }).catch(() => {})
   const refreshSessions = () => api.sessions(30).then((r) => setSessions(r.sessions)).catch(() => {})
+
+  // 侧栏状态对齐的兜底（M8）：本地标记是乐观显示，后端 status 才是真相。
+  // 每 15 秒拉一次会话列表，网络抖动/事件回调丢失导致的转圈最多错 15 秒。
+  useEffect(() => {
+    const timer = setInterval(refreshSessions, 15_000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // 首条消息已消费：把 tab 里的 initialUser 清掉，切视图重挂载时不会重发
+  const consumeInitial = (tabKey) => {
+    setTabs((ts) => ts.map((t) => (t.key === tabKey ? { ...t, initialUser: null, initialAssistant: null } : t)))
+  }
 
   useEffect(() => {
     refreshConfig(); refreshSessions()
@@ -151,19 +183,29 @@ export default function App() {
   const modelLabel = config?.models?.find((m) => m.name === config?.active_model)?.model || '…'
 
   return (
-    <div className="app codex-app" onClick={() => setNotifOpen(false)}>
+    <div className={`app codex-app ${sideCollapsed ? 'side-collapsed' : ''}`}
+         onClick={() => setNotifOpen(false)}>
       <IconRail active={rail} onNavigate={setRail} onOpenSettings={() => setSettingsOpen(true)} />
 
-      <Sidebar
-        sessions={sessions}
-        activeSessionId={showChat ? activeTabObj?.sessionId : null}
-        onOpenSession={openSessionReplay}
-        onNewChat={newChat}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenNotifications={() => setNotifOpen(true)}
-        onOpenPlugins={() => { setCustomizeOpen(true); setRail('none') }}
-      />
+      {!sideCollapsed && (
+        <Sidebar
+          sessions={sessions}
+          activeSessionId={showChat ? activeTabObj?.sessionId : null}
+          onOpenSession={openSessionReplay}
+          onNewChat={newChat}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSearch={() => setSearchOpen(true)}
+          onOpenNotifications={() => setNotifOpen(true)}
+          onOpenPlugins={() => { setCustomizeOpen(true); setRail('none') }}
+          onToggleCollapse={toggleSide}
+          runningIds={runningIds}
+        />
+      )}
+      {sideCollapsed && (
+        <button className="icon-btn sidebar-expand" title="展开侧栏" onClick={toggleSide}>
+          <PanelIcon size={15} />
+        </button>
+      )}
 
       <main className="main">
         {/* 标签页条：聊天标签 + 右侧工具面板开关 */}
@@ -199,6 +241,8 @@ export default function App() {
                     bindProjectKey={activeTabObj.bindProjectKey}
                     projectName={project?.name}
                     onSessionsChanged={refreshSessions}
+                    onRunningChange={handleRunning}
+                    onInitialConsumed={() => consumeInitial(activeTab)}
                     onCloseTab={() => setTabs((ts) => ts.filter((t) => t.key !== activeTab))} />
         )}
 

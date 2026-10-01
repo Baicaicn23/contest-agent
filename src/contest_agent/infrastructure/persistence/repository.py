@@ -334,6 +334,18 @@ class SqliteProjectRepository:
             session.flush()
             return row.id
 
+    def delete(self, project_key: str) -> bool:
+        """删除手动项目（M8）。键形如 manual:3；行不存在或非手动键返回 False。"""
+        if not project_key.startswith("manual:"):
+            return False
+        pid = int(project_key.split(":", 1)[1])
+        with self._session_factory() as session, session.begin():
+            row = session.get(ProjectModel, pid)
+            if row is None:
+                return False
+            session.delete(row)
+            return True
+
     def list_manual(self) -> list[ProjectInfo]:
         with self._session_factory() as session:
             rows = session.scalars(
@@ -419,6 +431,30 @@ class SqliteSessionRepository:
                 return False
             row.project_key = project_key
         return True
+
+    def set_status(self, session_id: int, status: str) -> bool:
+        """直设会话状态（M8）：聊天是"可续聊的持久会话"，一轮回复完成
+        置 completed、下一轮开始置回 running——"运行中"从此表示
+        "正在生成回复"，而不是"这个会话还没关"。"""
+        with self._session_factory() as session, session.begin():
+            row = session.get(SessionModel, session_id)
+            if row is None:
+                return False
+            row.status = status
+        return True
+
+    def unbind_project(self, project_key: str) -> int:
+        """解绑某项目下的全部会话（M8 删除项目用）：project_key 置空，会话本体保留。
+
+        返回解绑的会话数——"删了项目，几个会话回到了未归类"是可上报的事实。
+        """
+        with self._session_factory() as session, session.begin():
+            rows = session.scalars(
+                select(SessionModel).where(SessionModel.project_key == project_key)
+            ).all()
+            for row in rows:
+                row.project_key = None
+            return len(rows)
 
     def list_sessions(self, limit: int = 20) -> list[SessionSummary]:
         """最近 limit 个会话概要（新任务在前），附事件数与台账花费。

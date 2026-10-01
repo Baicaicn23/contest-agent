@@ -370,3 +370,35 @@ def test_metered_model_stream_without_usage_still_yields() -> None:
 
     assert asyncio.run(run()) == 4                        # 3 个增量 + 1 个收尾
     assert meter.call_count == 0 and meter.spent_yuan == 0
+
+
+def test_chat_session_status_lifecycle() -> None:
+    """一轮对话的状态机（M8）：开始置回 running、完成置 completed——
+    侧栏"运行中转圈"以这个字段为准，聊天会话不再永久卡在 running。"""
+    from contest_agent.infrastructure.persistence.repository import SqliteSessionRepository
+
+    archive = SqliteSessionRepository("sqlite:///:memory:")
+    sid = archive.create_session("chat", "状态机")
+
+    async def fake_runner(session_id, system_prompt, history, user_text):
+        async def gen():
+            yield {"type": "token", "text": "好"}
+            yield {"type": "done", "reply": "好"}
+        return gen()
+
+    service = ChatService(archive=archive, agent_runner=fake_runner)
+
+    async def run():
+        return [f async for f in service.stream_reply(sid, "你好")]
+
+    frames = asyncio.run(run())
+    assert frames[-1]["type"] == "done"
+    assert archive.list_sessions(limit=5)[0].status == "completed"
+
+    # 续聊：开始时置回 running，完成后再变 completed
+    async def run2():
+        return [f async for f in service.stream_reply(sid, "再来")]
+
+    asyncio.run(run2())
+    summary, _ = archive.get_session(sid)
+    assert summary.status == "completed"

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Logo from './Logo.jsx'
+import { GearIcon } from './Icon.jsx'
 
 // 左下角的用户弹出菜单（对应截图 4 的两层面板）。
 // 真实可用的入口：设置；其余为视觉复刻（项目没有账号体系和在线文档）。
@@ -66,11 +66,15 @@ export function UserBox({ onOpenSettings }) {
     <div className="user-box">
       {open && <UserMenu onOpenSettings={() => { setOpen(false); onOpenSettings() }} />}
       <button className="user-box-btn" onClick={() => setOpen(!open)}>
-        <span className="user-logo"><Logo size={20} /></span>
+        <span className="avatar">M</span>
         <span className="who">
-          momo <span className="sub">· 本地</span>
+          momo <span className="lite-badge">本地</span>
         </span>
-        <span className="chev">⌄</span>
+      </button>
+      {/* 齿轮直达设置（独立于弹层，不冒泡触发菜单） */}
+      <button className="icon-btn user-gear" title="设置"
+              onClick={(e) => { e.stopPropagation(); onOpenSettings() }}>
+        <GearIcon />
       </button>
     </div>
   )

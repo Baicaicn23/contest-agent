@@ -1317,3 +1317,177 @@ input, textarea, select {
   color: var(--text);
   font-family: inherit;
 }
+
+/* ============ M8：侧栏完全复刻（图标化/视图行/折叠/删除/运行中） ============ */
+
+/* 操作入口的图标槽：SVG 统一 16px、颜色随文字 */
+.side-ico {
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* 视图行：「项目」胶囊（唯一视图）+ 右侧筛选/垃圾桶 */
+.view-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 12px 0 2px;
+}
+.view-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--bg-elev);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(31, 30, 29, 0.08);
+}
+.view-row .icon-btn { width: 26px; height: 26px; font-size: 12px; }
+.view-row .spacer, .proj-head .spacer { flex: 1; }
+
+/* 筛选/垃圾桶"已激活"态：橙描边提示当前模式 */
+.icon-btn.armed {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 筛选输入框：滑出现（挂载动画沿弹层令牌） */
+.side-filter {
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 13px;
+  outline: none;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
+}
+
+/* 「项目」标题行：整列折叠开关 + 新建 */
+.proj-head {
+  display: flex;
+  align-items: center;
+  margin: 10px 10px 2px;
+}
+.proj-head-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.proj-head-toggle svg { color: var(--text-faint); transition: transform var(--dur-micro) var(--ease-out); }
+.proj-head-toggle.closed svg { transform: rotate(-90deg); }
+.proj-head .icon-btn { width: 24px; height: 24px; }
+
+/* 行内新建项目：输入 + 确认/取消 */
+.proj-create-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0;
+  padding: 2px 4px;
+}
+.proj-create-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 12.5px;
+  outline: none;
+}
+.proj-create-row .icon-btn { width: 24px; height: 24px; }
+.icon-btn.danger { color: #c0503a; }
+
+/* 删除确认态：整行替换为红字提示 + 两钮 */
+.proj-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  margin: 2px 0;
+  border-radius: var(--radius-sm);
+  background: #fbeaea;
+  color: #c0503a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+:root[data-theme='dark'] .proj-confirm { background: #3c2424; }
+.proj-confirm-actions { display: inline-flex; gap: 2px; flex-shrink: 0; }
+
+/* 删除模式下的行尾删除钮（只出现在手动项目上） */
+.proj-del {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--text-faint);
+  border-radius: 5px;
+  padding: 3px;
+  transition: color var(--dur-micro) var(--ease-out), background var(--dur-micro) var(--ease-out);
+}
+.proj-del:hover { color: #c0503a; background: var(--bg-chip); }
+.side-item.project .proj-del + .proj-ddl { display: none; }   /* 删除模式下隐藏截止角标，避免拥挤 */
+
+/* 运行中会话：转圈 + "刚刚"（替代状态徽章的位置） */
+.sub-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.icon-spinner { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 用户盒：头像圆 + 名字 + 本地徽章 + 齿轮（布局从"单按钮"改"按钮+齿轮并排"） */
+.user-box { display: flex; align-items: center; gap: 2px; }
+.user-box .user-box-btn { flex: 1; min-width: 0; }
+.avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.lite-badge {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 15px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+.user-gear { width: 26px; height: 26px; flex-shrink: 0; }
+.user-box .who { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 侧栏折叠（M8）：收起后主区补偿缩小（rail 12+52+8+12 = 84px），
+ * 左上浮一个展开钮。折叠是卸载/挂载（M6 原则：退场不动画）。 */
+.app.side-collapsed .main { margin-left: 84px; }
+.sidebar-expand {
+  position: fixed;
+  top: 22px;
+  left: 76px;
+  z-index: 45;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-pop);
+  border: 1px solid var(--border-soft);
+}

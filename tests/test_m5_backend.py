@@ -289,3 +289,38 @@ def test_access_endpoint(monkeypatch) -> None:
     resp = _client().post("/api/config/access", json={"full": True})
     assert resp.json() == {"access_full": True}
     assert called == [True]
+
+
+# ---------- M8：删除手动项目（解绑会话，会话保留） ----------
+
+
+def test_delete_manual_project_unbinds_but_keeps_sessions(workspace) -> None:
+    """删手动项目：行消失；其下会话回到未归类；会话本体还在。"""
+    service, comps, sessions, _, projects, _ = workspace
+    manual = service.create_project("待删项目")
+    sessions.create_session("chat", "项目里的对话")
+    assert service.bind_session(2, manual.key) is True
+
+    unbound = service.delete_project(manual.key)
+    assert unbound == 1
+    assert all(p.key != manual.key for p in service.list_projects())
+    # 会话本体保留、归属已清空
+    remaining = sessions.list_sessions(limit=10)
+    target = next(s for s in remaining if s.id == 2)
+    assert target.project_key is None
+
+
+def test_delete_card_project_rejected_and_missing_404(workspace) -> None:
+    """比赛卡派生项目拒删（422 语义）；不存在的键报不存在。"""
+    service, comps, *_ = workspace
+    card_key = service.list_projects()[0].key  # auto 项目
+    try:
+        service.delete_project(card_key)
+        raise AssertionError("应当拒绝删除比赛卡项目")
+    except ValueError as error:
+        assert "不能删除" in str(error)
+    try:
+        service.delete_project("manual:99999")
+        raise AssertionError("应当报项目不存在")
+    except ValueError as error:
+        assert "不存在" in str(error)

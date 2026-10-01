@@ -10,7 +10,8 @@ import MsgBubble, { ToolBlock } from '../components/MsgBubble.jsx'
 // error → 红色助手消息。task_type 是 chat 的会话可以继续聊，其余只读。
 export default function ChatView({ sessionId, title, initialUser, initialAssistant,
                                    onSessionsChanged, bindProjectKey, projectName,
-                                   onCloseTab, className = '' }) {
+                                   onCloseTab, className = '', onRunningChange,
+                                   onInitialConsumed }) {
   const [messages, setMessages] = useState([])   // {role, content, time?, tool?}
   const [chatSessionId, setChatSessionId] = useState(sessionId)  // null = 首发后由服务端分配
   const [taskType, setTaskType] = useState(sessionId ? null : 'chat')
@@ -32,7 +33,8 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
     }).catch((e) => { setError(e.message); setLoaded(true) })
   }, [sessionId])
 
-  // 首页带话进来：assistantText 有值 = 命令结果直接铺；否则当作第一条用户消息自动发送
+  // 首页带话进来：assistantText 有值 = 命令结果直接铺；否则当作第一条用户消息自动发送。
+  // 发送后立刻通知父级把 initialUser 置空——组件因切视图重挂载时不再重发一遍。
   useEffect(() => {
     if (sessionId != null || sentInitial.current) return
     if (initialAssistant != null) {
@@ -42,9 +44,11 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
         { role: 'assistant', content: initialAssistant },
       ])
       setLoaded(true)
+      onInitialConsumed?.()
     } else if (initialUser != null) {
       sentInitial.current = true
       setLoaded(true)
+      onInitialConsumed?.()
       send(initialUser)
     }
   }, [sessionId, initialUser, initialAssistant])
@@ -70,6 +74,11 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
           if (ev.type === 'session') {
             currentSession = ev.session_id
             setChatSessionId(ev.session_id)
+            // 侧栏树实时转圈：会话落地即标运行中，结束时回调解除
+            onRunningChange?.(ev.session_id, true)
+            // 立刻刷新一次列表：新会话要马上出现在侧栏树里（带着 running 状态转圈），
+            // 否则要等任务结束才可见
+            onSessionsChanged?.()
           } else if (ev.type === 'token') {
             setMessages((m) => {
               const copy = [...m]
@@ -87,6 +96,9 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
               return copy
             })
           } else if (ev.type === 'done') {
+            // 先解除侧栏转圈再落消息：done 一到就结束"运行中"，
+            // 不等流关闭（尾部偶尔挂起会让 finally 延迟，转圈多转几十秒）
+            if (currentSession != null) onRunningChange?.(currentSession, false)
             setMessages((m) => {
               const copy = [...m]
               copy[copy.length - 1] = { role: 'assistant', content: ev.reply, time: now() }
@@ -97,6 +109,7 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
               api.bindSession(currentSession, bindProjectKey).catch(() => {})
             }
           } else if (ev.type === 'error') {
+            if (currentSession != null) onRunningChange?.(currentSession, false)
             setMessages((m) => {
               const copy = [...m]
               copy[copy.length - 1] = { role: 'assistant', content: `注意：${ev.error}`, error: true }
@@ -113,6 +126,7 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
       })
     } finally {
       setBusy(false)
+      if (currentSession != null) onRunningChange?.(currentSession, false)
       onSessionsChanged?.()
     }
   }

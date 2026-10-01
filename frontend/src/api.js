@@ -51,6 +51,8 @@ export const api = {
   bindSession: (sessionId, projectKey) =>
     jfetch('/api/projects/bind', { method: 'POST',
       body: JSON.stringify({ session_id: sessionId, project_key: projectKey }) }),
+  deleteProject: (key) =>
+    jfetch(`/api/projects/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   search: (q) => jfetch(`/api/search?q=${encodeURIComponent(q)}`),
   notifications: () => jfetch('/api/notifications'),
   skills: () => jfetch('/api/skills'),

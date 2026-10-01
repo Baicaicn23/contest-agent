@@ -124,6 +124,12 @@ class ChatService:
         {"type": "error", "error": …}       出错（预算熔断等）
         """
         self._log(session_id, "user_input", {"text": user_text})
+        # 状态对齐（M8）：续聊的旧会话可能是 completed，本轮开始置回 running；
+        # 侧栏树的转圈以这个字段为准。置失败（会话不存在）不影响对话。
+        try:
+            self.archive.set_status(session_id, "running")
+        except Exception:
+            pass
 
         history = self.history(session_id)
         collected: list[str] = []
@@ -142,18 +148,29 @@ class ChatService:
                     collected.append(reply)
                     if chunk.get("error"):
                         self._log(session_id, "error", {"error": chunk["error"]})
+                        self._set_finished(session_id, "failed")
                         yield {"type": "error", "error": chunk["error"]}
                     else:
                         self._log(session_id, "result", {"final_text": reply})
+                        self._set_finished(session_id, "completed")
                         yield {"type": "done", "reply": reply}
                 else:
                     yield chunk
         except BudgetExceededError as error:
             self._log(session_id, "error", {"error": str(error)})
+            self._set_finished(session_id, "failed")
             yield {"type": "error", "error": str(error)}
         except Exception as error:
             self._log(session_id, "error", {"error": str(error)})
+            self._set_finished(session_id, "failed")
             yield {"type": "error", "error": str(error)}
+
+    def _set_finished(self, session_id: int, status: str) -> None:
+        """一轮结束（completed/failed）。会话还能续聊，下一轮开始会置回 running。"""
+        try:
+            self.archive.set_status(session_id, status)
+        except Exception:
+            pass
 
     def _log(self, session_id: int, kind: str, payload: dict) -> None:
         """写会话事件；存档故障不影响对话（TaskRecorder 的老规矩）。"""

@@ -564,6 +564,18 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
             raise HTTPException(404, f"会话 {req.session_id} 不存在")
         return {"bound": True, "session_id": req.session_id, "project_key": req.project_key}
 
+    @app.delete("/api/projects/{project_key}")
+    def delete_project(project_key: str) -> dict:
+        """删除手动项目（M8 侧栏垃圾桶）：解绑其下会话，会话本体保留。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "工作台未装配")
+        try:
+            unbound = usecases.workspace.delete_project(project_key)
+        except ValueError as error:
+            status = 422 if "不能删除" in str(error) else 404
+            raise HTTPException(status, str(error))
+        return {"deleted": project_key, "unbound_sessions": unbound}
+
     @app.get("/api/search")
     def global_search(q: str = "") -> dict:
         """全局搜索：会话备注 / 比赛卡片名 / 通知标题。"""

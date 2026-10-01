@@ -117,6 +117,19 @@ class WorkspaceService:
             raise ValueError(f"项目 {project_key!r} 不存在")
         return self.sessions.bind_session(session_id, project_key)
 
+    def delete_project(self, project_key: str) -> int:
+        """删除手动项目（M8 侧栏垃圾桶），返回解绑的会话数。
+
+        比赛卡派生项目（card:*）不可删——它们由卡片数据现算，删了下次
+        列表还会出现，删等于骗人；手动项目删除只解除会话归属，
+        会话本体（轨迹/台账）一律保留。
+        """
+        if not project_key.startswith("manual:"):
+            raise ValueError("比赛卡派生的项目不能删除（由比赛数据自动维护）")
+        if self.projects.delete(project_key) is False:
+            raise ValueError(f"项目 {project_key!r} 不存在")
+        return self.sessions.unbind_project(project_key)
+
     # ---------- 全局搜索 ----------
 
     def search(self, query: str) -> dict:
