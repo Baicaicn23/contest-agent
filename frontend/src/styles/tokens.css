@@ -100,10 +100,11 @@
 :root[data-fs='large'] { --fs-msg: 17px; }
 
 :root {
-  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
-  --font-serif: 'Georgia', 'Songti SC', 'SimSun', serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  /* macOS 原生系统字体栈（全站统一）：SF Pro + 苹方，由系统按语言自动回落 */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    'PingFang SC', 'Helvetica Neue', sans-serif;
+  --font-serif: var(--font-sans);   /* 全站统一：大标题也用系统字体 */
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   --radius-lg: 18px;
   --radius-md: 12px;
