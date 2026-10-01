@@ -21,7 +21,7 @@ const FS_KEY = 'ca-fontsize'
 
 export default function App() {
   const [rail, setRail] = useState('home')            // 图标栏定位：home/stats/deadlines
-  const [tabs, setTabsActions] = useState([{ key: 'home', title: '首页' }])
+  const [tabs, setTabs] = useState([{ key: 'home', title: '首页' }])
   const [activeTab, setActiveTab] = useState('home')
   const [config, setConfig] = useState(null)
   const [sessions, setSessions] = useState([])
