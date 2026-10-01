@@ -67,9 +67,10 @@ models:
   deepseek:
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
-    model: deepseek-chat
+    model: deepseek-flash   # DeepSeek V4.1-Flash（2026-09 发布的最新款）；官方 API 名不带版本号
     # 计费单价（元/百万 token），照服务商价目页填，调价改这里即可。
-    # 不填 = 台账只记 token 不算钱。以下为 2026-09 填写的参考值
+    # 不填 = 台账只记 token 不算钱。以下为 flash 高峰时段价（2026-10 查官方价目页）：
+    # 闲时（工作日 18 点后 / 周末 / 节假日全天）半价；台账按高峰价记账（保守：宁可记多不记少）
     input_price_per_m: 2.0
     output_price_per_m: 8.0
   qwen:
