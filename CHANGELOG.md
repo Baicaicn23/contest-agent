@@ -4,6 +4,37 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M5 Codex 化界面
+
+### 新增
+
+- **Codex 式布局**：图标栏（工作台/统计/截止日程）+ 侧栏重构
+  （Contest Agent 头部 / 通知铃 / 全局搜索 / 项目树 / skills配置 / 最近）
+  + 聊天标签页（多标签并行）+ 右侧工具分屏（output 真实文件列表与预览）
+- **项目体系**：比赛卡自动派生项目（不落库现算）+ 手动新建（projects 表）+
+  会话归属（sessions 幂等加 project_key）；composer 项目 chip 弹面板
+  （搜索/新建/绑定），发首条消息自动归属
+- **插件市场**：7 个能力插件（截止守望/评测/盯梢/PPT导出 + 三种推送通道），
+  安装/卸载真实写 config 的 features 段（行级读写保注释）；
+  未安装能力对应接口降级 503；Skills 页列真实技能清单
+- **完全访问总闸**：config `access_full` + 权限门两层模型
+  （总闸开=全放行，名单无损保留）；composer"⚠ 完全访问"开关真实写配置
+- **后端端点**：/api/projects(+/bind) /api/search /api/notifications
+  /api/skills /api/files(+/content) /api/git/branch /api/plugins(+/toggle)
+  /api/config/access
+
+### 变更
+
+- settings.set_feature / set_access_full（按行替换保注释）；
+  PermissionGate 支持 full_access 总闸；sessions 表幂等小迁移
+
+### 测试
+
+- 离线 160 项（新增 12）+ live 4 项全绿
+- 浏览器对照五张 Codex 原图验收：项目树/chips popover/设置权限卡/插件墙；
+  功能真实性：切项目绑定落库、总闸写 yaml、插件 toggle 后接口降级、
+  搜索命中、git 分支真实读取
+
 ## [Unreleased] — M4 收尾批
 
 ### 新增
