@@ -289,3 +289,84 @@ def test_chat_endpoint_503_without_service() -> None:
     resp = client.post("/api/chat", json={"message": "hi"})
     assert resp.status_code == 503
     assert "DEEPSEEK_API_KEY" in resp.json()["detail"]
+
+
+# ---------- 流式记账（M7+：聊天开 stream=True 后计价代理的生成器路径） ----------
+
+
+class FakeStreamingModel:
+    """流式假模型：__call__ 返回 async generator，usage 在最后一个 chunk
+    （与 AgentScope 真模型 stream=True 的行为一致）。"""
+
+    context_size = 100_000
+    stream = True
+    model = "fake-stream"
+    formatter = SimpleNamespace(supported_input_media_types=["image/*"])
+
+    def __init__(self, usage_on_tail: bool = True) -> None:
+        self.usage_on_tail = usage_on_tail
+
+    async def __call__(self, messages, tools=None, **kwargs):
+        from agentscope.message import TextBlock
+        from agentscope.model import ChatResponse, ChatUsage
+
+        async def gen():
+            for piece in ["你好", "，", "世界"]:
+                yield ChatResponse(
+                    content=[TextBlock(type="text", text=piece)],
+                    is_last=False,
+                )
+            tail_usage = (ChatUsage(input_tokens=30, output_tokens=6, time=0.01)
+                          if self.usage_on_tail else None)
+            yield ChatResponse(content=[], is_last=True, usage=tail_usage)
+
+        return gen()
+
+    async def count_tokens(self, messages, tools=None) -> int:
+        return 30
+
+    async def generate_structured_output(self, *args, **kwargs):
+        raise AssertionError("聊天不应触发结构化输出")
+
+
+def _stream_profile_meter():
+    profile = ModelProfile(name="t", base_url="https://x", api_key_env="K", model="t")
+    return profile, CostMeter(profile=profile, task_type="chat")
+
+
+def test_metered_model_streams_and_records_once() -> None:
+    """流式返回：chunk 全部透传、usage 在尾 chunk、只记一次账。"""
+    from contest_agent.application.harness.agent_factory import MeteredChatModel
+
+    _, meter = _stream_profile_meter()
+    proxy = MeteredChatModel(FakeStreamingModel(), meter)
+
+    async def run():
+        result = await proxy([{"role": "user", "content": "hi"}])
+        pieces = []
+        async for chunk in result:
+            for b in getattr(chunk, "content", []) or []:
+                if getattr(b, "type", "") == "text":
+                    pieces.append(b.text)
+        return pieces
+
+    assert asyncio.run(run()) == ["你好", "，", "世界"]   # 增量原样透传
+    assert meter.call_count == 1                          # 流结束记一次，不是每 chunk 一次
+
+
+def test_metered_model_stream_without_usage_still_yields() -> None:
+    """服务商没回 usage（异常情况）也不炸：chunk 照透传、账本零记录。"""
+    from contest_agent.application.harness.agent_factory import MeteredChatModel
+
+    _, meter = _stream_profile_meter()
+    proxy = MeteredChatModel(FakeStreamingModel(usage_on_tail=False), meter)
+
+    async def run():
+        result = await proxy([{"role": "user", "content": "hi"}])
+        count = 0
+        async for _ in result:
+            count += 1
+        return count
+
+    assert asyncio.run(run()) == 4                        # 3 个增量 + 1 个收尾
+    assert meter.call_count == 0 and meter.spent_yuan == 0

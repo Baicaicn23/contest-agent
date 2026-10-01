@@ -84,13 +84,18 @@ class MaterialTools:
     functions: dict[str, Callable[..., str]] = field(default_factory=dict)
 
 
-def build_chat_model(profile: ModelProfile, meter=None, recorder=None) -> ChatModelBase:
+def build_chat_model(profile: ModelProfile, meter=None, recorder=None,
+                     stream: bool = False) -> ChatModelBase:
     """按模型档案创建 AgentScope 的聊天模型客户端。
 
     密钥缺失在这里立刻报错，错误信息直接告诉用户该设置哪个环境变量。
     传入 meter（CostMeter）时，返回的是包了计价器的代理模型：
     每轮调用前查预算、调用后记账——框架对此完全无感。
     M2 起可再传 recorder（TaskRecorder），代理同时记会话事件。
+
+    stream：是否真流式（M7+）。批处理任务（生成材料/识别）保持 False——
+    一次拿整块简单可靠；聊天界面要"打字机"效果，传 True，
+    框架的 reply_stream 才能逐字发 TextBlockDeltaEvent。
     """
     api_key = profile.resolve_api_key()
     if not api_key:
@@ -103,7 +108,7 @@ def build_chat_model(profile: ModelProfile, meter=None, recorder=None) -> ChatMo
         inner = DeepSeekChatModel(
             credential=DeepSeekCredential(api_key=api_key, base_url=profile.base_url),
             model=profile.model,
-            stream=False,
+            stream=stream,
             max_retries=2,
         )
     else:
@@ -111,7 +116,7 @@ def build_chat_model(profile: ModelProfile, meter=None, recorder=None) -> ChatMo
         inner = OpenAIChatModel(
             credential=OpenAICredential(api_key=api_key, base_url=profile.base_url),
             model=profile.model,
-            stream=False,
+            stream=stream,
             max_retries=2,
         )
     # 没配计价器就返回裸模型，行为与 v1.5 完全一致
@@ -147,13 +152,24 @@ class MeteredChatModel:
         return self._inner.context_size
 
     async def __call__(self, messages: list, tools: list | None = None, **kwargs):
-        """每轮模型调用的总入口：先过预算闸，再真调用，最后记账。"""
+        """每轮模型调用的总入口：先过预算闸，再真调用，最后记账。
+
+        两种返回形态（内层模型 stream 开关决定，代理都兼容）：
+        - 非流式：ChatResponse 整块 → 现拿现记；
+        - 流式：async generator（增量 chunk）→ 包一层透传，
+          usage 由服务商放在最后一个 chunk（stream_options include_usage），
+          流耗尽时记一次账——语义仍是"调用完成后记账"。
+        """
         # 前置熔断：上一轮把钱花满了，这一轮直接拦下（抛 BudgetExceededError，
         # 框架会把异常记为本次 reply 的 error，任务带着明确原因终止）
         self._meter.precheck()
         response = await self._inner(messages, tools=tools, **kwargs)
-        # 记账：usage 由服务商在响应里如实回报（本项目所有模型都 stream=False，
-        # 响应是 ChatResponse 对象，直接读 usage 字段）
+
+        if hasattr(response, "__aiter__"):
+            # 流式形态：透传每个增量 chunk，尾巴上统一记账
+            return self._metered_stream(response, messages)
+
+        # 非流式：响应是 ChatResponse 对象，直接读 usage 字段
         usage = getattr(response, "usage", None)
         if usage is not None:
             self._meter.record(
@@ -172,6 +188,31 @@ class MeteredChatModel:
                 blocks=block_types,
             )
         return response
+
+    async def _metered_stream(self, agen, messages: list):
+        """包住流式返回：chunk 原样透传给框架（逐字事件靠它），
+        同时盯着 usage（尾 chunk 才有）和块类型，流结束统一记账/记事件。"""
+        usage = None
+        block_types: list[str] = []
+        async for chunk in agen:
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                usage = chunk_usage
+            block_types = [type(b).__name__ for b in getattr(chunk, "content", []) or []]
+            yield chunk
+        if usage is not None:
+            self._meter.record(
+                prompt_tokens=usage.input_tokens,
+                completion_tokens=usage.output_tokens,
+            )
+        if self._recorder is not None:
+            self._recorder.log(
+                "model_call",
+                messages=len(messages) if messages else 0,
+                input_tokens=getattr(usage, "input_tokens", None) if usage else None,
+                output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+                blocks=block_types,
+            )
 
     async def count_tokens(self, messages: list, tools: list | None = None) -> int:
         """透传 token 估算（框架用它判断"该不该压缩"）。"""
@@ -643,7 +684,10 @@ async def run_chat_agent_stream(
     """
     from agentscope.event import TextBlockDeltaEvent, ToolCallStartEvent
 
-    inner = model or build_chat_model(profile, meter)
+    # 聊天要"打字机"：真流式（stream=True），框架才逐字发 TextBlockDeltaEvent。
+    # 注意 meter 只在这一层 MeteredChatModel 生效——build_chat_model 传 None
+    # 拿裸模型（修复：此前内外各包一层，聊天每轮记账双倍）。
+    inner = model or build_chat_model(profile, meter=None, stream=True)
     agent = Agent(
         name="chat_agent",
         system_prompt=system_prompt,
