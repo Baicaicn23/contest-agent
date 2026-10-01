@@ -234,14 +234,14 @@ def _run_identify(args: argparse.Namespace) -> int:
 
     # M1 预算闸门：熔断了要亮出来——已花钱的部分照常入库，但任务没跑完
     if usecase.budget_error:
-        print(f"⚠️ {usecase.budget_error}")
+        print(f"注意：{usecase.budget_error}")
         print("（已识别的卡片已入库；可调高 config.yaml 的 budget_per_task_yuan 后重跑）\n")
 
     type_names = {"deliverable": "交付物型", "exam": "考试型"}
     for number, outcome in enumerate(outcomes, start=1):
-        mark = "✅ 比赛  " if outcome.is_competition else "❌ 非比赛"
+        mark = "[比赛]" if outcome.is_competition else "[非比赛]"
         if outcome.from_memory:
-            mark = "💾 记忆  "  # 结论直接来自持久记忆，这次没花 LLM 的钱
+            mark = "[记忆]"  # 结论直接来自持久记忆，这次没花 LLM 的钱
         print(f"{number:>2}. {mark} | {outcome.notice.title}")
         print(f"     {outcome.notice.source_url}")
         print(f"     理由：{outcome.reason}")
@@ -306,7 +306,7 @@ def _run_generate(args: argparse.Namespace) -> int:
     if getattr(result, "pptx_file", None):
         print(f"幻灯片已导出：output/{result.pptx_file}（可直接用 PowerPoint/WPS 打开）")
     if getattr(result, "pptx_hint", None):
-        print(f"⚠️ {result.pptx_hint}（大纲 Markdown 不受影响）")
+        print(f"注意：{result.pptx_hint}（大纲 Markdown 不受影响）")
 
     # 工具轨迹播报：agent 干活的透明度底线
     if result.tool_trace:
@@ -326,7 +326,7 @@ def _run_generate(args: argparse.Namespace) -> int:
 def _run_study_path(args: argparse.Namespace) -> int:
     """执行 sai study-path：生成备考路径并对全部引用做存在性校验。
 
-    输出里每个链接都带 ✅/❌ 标记——❌ 意味着程序验证过这个链接打不开，
+    输出里每个链接都带 通过/失败 标记——失败意味着程序验证过这个链接打不开，
     这类链接绝对不会原样出现在最终材料里（有死链会被打回重做）。
     """
     from ..composition import build_plan_study_path_usecase
@@ -350,7 +350,7 @@ def _run_study_path(args: argparse.Namespace) -> int:
 
     print("\n引用校验明细：")
     for citation in result.citations:
-        mark = "✅" if citation["ok"] else "❌"
+        mark = "[通过]" if citation["ok"] else "[失败]"
         print(f"  {mark} {citation['url']}")
         print(f"     {citation['note']}")
 
@@ -460,7 +460,7 @@ def _run_memory(args: argparse.Namespace) -> int:
     print(f"持久记忆共 {count} 条（最近 {min(count, 50)} 条）：\n")
     for entry in report.entries(limit=50):
         value = entry.value or {}
-        mark = "✅ 比赛" if value.get("is_competition") else "❌ 非比赛"
+        mark = "[比赛]" if value.get("is_competition") else "[非比赛]"
         key = entry.key.removeprefix("verdict:")
         updated = entry.updated_at.strftime("%m-%d %H:%M") if entry.updated_at else "??"
         print(f" [{updated}] {mark} | {key}")
@@ -561,9 +561,9 @@ def _run_replay(args: argparse.Namespace) -> int:
                 text = str(payload.get("final_text", ""))
                 print(f"[{event.seq:>3}] {name}：{text[:200]}{'…' if len(text) > 200 else ''}")
             else:
-                mark = "✅ 比赛" if payload.get("is_competition") else "❌ 非比赛"
+                mark = "[比赛]" if payload.get("is_competition") else "[非比赛]"
                 if payload.get("from_memory"):
-                    mark = "💾 记忆命中"
+                    mark = "[记忆命中]"
                 source = "LLM" if payload.get("llm_called") else "没动用 LLM"
                 print(f"[{event.seq:>3}] {name}：{mark} | {payload.get('title', '')[:50]}（{source}）")
         else:
@@ -605,7 +605,7 @@ def _run_eval(args: argparse.Namespace) -> int:
     if wrong:
         print(f"\n判错的 {len(wrong)} 条：")
         for r in wrong:
-            print(f"  ✗ {r.title}")
+            print(f"  [判错] {r.title}")
             print(f"    期望比赛={r.expected_competition}，判成了比赛={r.predicted_competition}；{r.reason[:60]}")
 
     # 基线比对（--save 先建基线；之后每次自动比对）
@@ -618,7 +618,7 @@ def _run_eval(args: argparse.Namespace) -> int:
         comparison = compare_with_baseline(report)
         print(f"\n回归比对：{comparison['message']}")
         for line in comparison.get("regressions", []):
-            print(f"  ⚠️ 从对变错：{line}")
+            print(f"  从对变错：{line}")
         if comparison["status"] == "regressed":
             print("  识别质量退化——如果这次改动不是故意的，请回滚提示词/配置。")
         return 0 if comparison["status"] != "regressed" else 1
@@ -656,12 +656,12 @@ def _watch_round(args: argparse.Namespace) -> int:
         return 1
 
     if usecase.identify.budget_error:
-        print(f"⚠️ {usecase.identify.budget_error}")
+        print(f"{usecase.identify.budget_error}")
 
     if not result.new_cards:
         print("本轮没有发现新比赛。（识别结论已进记忆，下一轮同样的通知不再花钱）")
     else:
-        print(f"🔔 发现 {len(result.new_cards)} 场新比赛：")
+        print(f"发现 {len(result.new_cards)} 场新比赛：")
         for card in result.new_cards:
             deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "见通知"
             print(f"  - {card.name}（截止 {deadline}）")
@@ -672,7 +672,7 @@ def _watch_round(args: argparse.Namespace) -> int:
     if result.push_results:
         print("\n新比赛推送结果：")
         for r in result.push_results:
-            mark = "✅" if r["ok"] else "❌"
+            mark = "[OK]" if r["ok"] else "[失败]"
             print(f"  {mark} {r['channel']}")
             if not r["ok"]:
                 exit_code = 1
@@ -682,12 +682,12 @@ def _watch_round(args: argparse.Namespace) -> int:
     sentinel = build_deadline_sentinel()
     report = sentinel.execute(push=not args.no_push)
     if report.alerts:
-        print(f"\n⏰ 截止提醒 {len(report.alerts)} 条：")
+        print(f"\n截止提醒 {len(report.alerts)} 条：")
         for alert in report.alerts:
             print(f"  - {alert.label}｜{alert.card.name}")
         if report.push_results:
             for r in report.push_results:
-                mark = "✅" if r["ok"] else "❌"
+                mark = "[OK]" if r["ok"] else "[失败]"
                 print(f"  {mark} 推送通道 {r['channel']}")
                 if not r["ok"]:
                     exit_code = 1

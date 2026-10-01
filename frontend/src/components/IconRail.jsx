@@ -2,10 +2,10 @@
 // 首页/历史(统计)/定时/更多 + 底部下载(占位)/设置。
 export default function IconRail({ active, onNavigate, onOpenSettings }) {
   const items = [
-    { key: 'home', icon: '⌂', title: '工作台' },
-    { key: 'stats', icon: '◔', title: '统计' },
-    { key: 'deadlines', icon: '⏰', title: '截止日程' },
-    { key: 'more', icon: '…', title: '更多（视觉占位）' },
+    { key: 'home', icon: null, label: '工作台' },
+    { key: 'stats', icon: null, label: '统计' },
+    { key: 'deadlines', icon: null, label: '日程' },
+    { key: 'more', icon: null, label: '更多' },
   ]
   return (
     <nav className="icon-rail">
@@ -13,15 +13,15 @@ export default function IconRail({ active, onNavigate, onOpenSettings }) {
         {items.map((item) => (
           <button key={item.key}
                   className={`rail-btn ${active === item.key ? 'active' : ''}`}
-                  title={item.title}
+                  title={item.label}
                   onClick={() => item.key !== 'more' && onNavigate(item.key)}>
-            {item.icon}
+            {item.label.slice(0, 2)}
           </button>
         ))}
       </div>
       <div className="rail-bottom">
-        <button className="rail-btn" title="下载（视觉占位）">⬇</button>
-        <button className="rail-btn" title="设置" onClick={onOpenSettings}>⚙</button>
+        <button className="rail-btn rail-txt" title="下载（视觉占位）">下载</button>
+        <button className="rail-btn rail-txt" title="设置" onClick={onOpenSettings}>设置</button>
       </div>
     </nav>
   )

@@ -20,7 +20,7 @@ export default function NotificationsPop({ onOpenDeadlines, onClose }) {
       )}
       {data && data.urgent_deadlines.map((d) => (
         <div key={d.name} className="menu-item" style={{ cursor: 'default' }}>
-          <span className="icon">⏰</span>
+          <span className="icon">⏱</span>
           <span style={{ flex: 1 }}>{d.name}<br />
             <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>{d.label}</span>
           </span>

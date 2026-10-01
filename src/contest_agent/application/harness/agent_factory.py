@@ -599,13 +599,13 @@ async def build_chat_tools(
         comp = sum(1 for o in outcomes if o.is_competition)
         lines = [f"共 {len(outcomes)} 条：比赛 {comp} 条。"]
         for o in outcomes:
-            mark = "✅ 比赛" if o.is_competition else "❌ 非比赛"
+            mark = "[比赛]" if o.is_competition else "[非比赛]"
             lines.append(f"- {mark}｜{o.notice.title}")
             if o.competition is not None:
                 deadline = o.competition.deadline.strftime("%Y-%m-%d") if o.competition.deadline else "见通知"
                 lines.append(f"  {o.competition.name}（{o.competition.type}，截止 {deadline}）")
         if identify_usecase.budget_error:
-            lines.append(f"⚠️ {identify_usecase.budget_error}")
+            lines.append(f"注意：{identify_usecase.budget_error}")
         return "\n".join(lines)
 
     functions = {

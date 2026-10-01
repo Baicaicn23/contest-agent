@@ -96,9 +96,9 @@ def test_four_thresholds_and_makeup() -> None:
     alerted = {a.card.name: a.remaining for a in report.alerts}
     assert alerted == {"A7": 7, "B5": 5, "C3": 3, "D1": 1, "E0": 0}
     labels = {a.card.name: a.label for a in report.alerts}
-    assert labels["E0"] == "🔴 今天截止"
-    assert labels["D1"] == "🟠 明天截止（最后一天）"
-    assert "⏳ 还剩 5 天" in labels["B5"]
+    assert labels["E0"] == "今天截止"
+    assert labels["D1"] == "明天截止（最后一天）"
+    assert labels["B5"] == "还剩 5 天"
 
 
 def test_memory_dedupes_same_level() -> None:
@@ -147,7 +147,7 @@ def test_late_added_card_gets_makeup_alert() -> None:
     r = _sentinel([card], memory=memory, pushers=[web]).execute(push=True)
 
     assert [a.remaining for a in r.alerts] == [2]
-    assert "⏳ 还剩 2 天" in r.alerts[0].label
+    assert r.alerts[0].label == "还剩 2 天"
     # 记住补发级别：T-1 照常走档，不会重复补发
     r2 = _sentinel([card], memory=memory, pushers=[web]).execute(push=True)
     assert r2.alerts == []

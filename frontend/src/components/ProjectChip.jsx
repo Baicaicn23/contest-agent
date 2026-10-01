@@ -40,7 +40,7 @@ export default function ProjectChip({ selected, onSelect, sessionReady }) {
     <div className="chip-wrap" ref={wrapRef} style={{ position: 'relative' }}>
       <button className={`pill-btn ${selected ? 'pill-active' : ''}`}
               onClick={() => setOpen(!open)}>
-        <span>▤</span> {selected ? selected.name : '项目'}
+        {selected ? selected.name : '项目'}
       </button>
       {open && (
         <div className="cmd-palette project-palette">
@@ -50,7 +50,7 @@ export default function ProjectChip({ selected, onSelect, sessionReady }) {
           <div className="palette-list">
             {matches.map((p) => (
               <button key={p.key} className="cmd-item" onClick={() => choose(p)}>
-                <span>▤</span> {p.name}
+                {p.name}
                 <span className="desc">{p.sessions ? `${p.sessions} 会话` : ''}</span>
                 {selected?.key === p.key && <span className="check">✓</span>}
               </button>

@@ -15,28 +15,28 @@ export default function UserMenu({ onOpenSettings }) {
       </div>
       <div className="menu-sep" />
       <button className="menu-item" onClick={onOpenSettings}>
-        <span className="icon">⚙</span> 设置
+        <span className="icon">设</span> 设置
         <span className="shortcut">⌘,</span>
       </button>
       <button className="menu-item" onClick={onOpenSettings}>
-        <span className="icon">🌐</span> 语言
+        <span className="icon">语</span> 语言
       </button>
       <button className="menu-item" onClick={onOpenSettings}>
-        <span className="icon">⚙</span> 推理配置
+        <span className="icon">推</span> 推理配置
       </button>
       <div className="menu-sep" />
       <a className="menu-item" href={`${repoUrl}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer">
-        <span className="icon">📋</span> 查看更新日志
+        <span className="icon">志</span> 查看更新日志
       </a>
       <button className="menu-item"
               onMouseEnter={() => setLearnMoreOpen(true)}
               onClick={() => setLearnMoreOpen(!learnMoreOpen)}>
-        <span className="icon">ℹ️</span> 了解更多
+        <span className="icon">了</span> 了解更多
         <span className="chev">›</span>
       </button>
       <div className="menu-sep" />
       <button className="menu-item" title="本项目是本地单机应用，无需登录">
-        <span className="icon">↪</span> 退出登录
+        <span className="icon">出</span> 退出登录
       </button>
 
       {learnMoreOpen && (

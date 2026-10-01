@@ -39,7 +39,7 @@ export default function ChatInput({ onSend, onCommandResult, busy = false,
       const result = await cmd.run()
       onCommandResult?.(cmd, result, original)
     } catch (error) {
-      onCommandResult?.(cmd, `⚠️ ${error.message}`, original)
+      onCommandResult?.(cmd, `注意：${error.message}`, original)
     }
   }
 

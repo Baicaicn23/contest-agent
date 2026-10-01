@@ -99,7 +99,7 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
           } else if (ev.type === 'error') {
             setMessages((m) => {
               const copy = [...m]
-              copy[copy.length - 1] = { role: 'assistant', content: `⚠️ ${ev.error}`, error: true }
+              copy[copy.length - 1] = { role: 'assistant', content: `注意：${ev.error}`, error: true }
               return copy
             })
           }
@@ -108,7 +108,7 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
     } catch (e) {
       setMessages((m) => {
         const copy = [...m]
-        copy[copy.length - 1] = { role: 'assistant', content: `⚠️ ${e.message}`, error: true }
+        copy[copy.length - 1] = { role: 'assistant', content: `注意：${e.message}`, error: true }
         return copy
       })
     } finally {
@@ -144,7 +144,7 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
             ? <ToolBlock key={i} name={m.toolName} args={m.toolArgs} result={m.content} />
             : <MsgBubble key={i} role={m.role} content={m.content} time={m.time} error={m.error} />
         ))}
-        {error && <MsgBubble role="assistant" content={`⚠️ ${error}`} error />}
+        {error && <MsgBubble role="assistant" content={`注意：${error}`} error />}
       </div>
 
       {/* 输入区：回放只读 */}
@@ -192,14 +192,14 @@ function eventsToMessages(events) {
       if ('final_text' in p) {
         messages.push({ role: 'assistant', content: p.final_text || '', time: hm(e.created_at) })
       } else {
-        const mark = p.is_competition ? '✅ 比赛' : (p.from_memory ? '💾 记忆命中' : '❌ 非比赛')
+        const mark = p.is_competition ? '[比赛]' : (p.from_memory ? '[记忆命中]' : '[非比赛]')
         const src = p.llm_called ? 'LLM' : '没动用 LLM'
         messages.push({ role: 'assistant', content: `${mark}｜${p.title || ''}（${src}）`, time: hm(e.created_at) })
       }
     } else if (e.kind === 'tool_call') {
       messages.push({ role: 'assistant', tool: true, toolName: p.tool, toolArgs: p.args, content: p.result })
     } else if (e.kind === 'error') {
-      messages.push({ role: 'assistant', content: `⚠️ ${p.error || ''}`, error: true, time: hm(e.created_at) })
+      messages.push({ role: 'assistant', content: `注意：${p.error || ''}`, error: true, time: hm(e.created_at) })
     }
     // model_call / compression 不单独成消息：token 细节看台账，轨迹以内容为主
   }

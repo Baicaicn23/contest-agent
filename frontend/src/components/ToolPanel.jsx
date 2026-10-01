@@ -15,7 +15,7 @@ export default function ToolPanel({ onClose }) {
       const r = await api.fileContent(name)
       setPreview(r)
     } catch (e) {
-      setPreview({ name, content: `⚠️ ${e.message}` })
+      setPreview({ name, content: `注意：${e.message}` })
     }
   }
 
@@ -36,7 +36,7 @@ export default function ToolPanel({ onClose }) {
           <button key={f.name} className={`side-item ${preview?.name === f.name ? 'active' : ''}`}
                   onClick={() => open(f.name)}
                   style={{ fontSize: 12.5 }}>
-            <span className="title">📄 {f.name}</span>
+            <span className="title">{f.name}</span>
           </button>
         ))}
       </div>

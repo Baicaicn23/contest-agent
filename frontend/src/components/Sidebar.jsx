@@ -24,15 +24,15 @@ export default function Sidebar({ sessions, activeSessionId, onOpenSession,
         <span className="side-head-icons">
           <button className="icon-btn" title={notifCount ? `${notifCount} 条紧急截止` : '通知'}
                   onClick={onOpenSearch} style={{ position: 'relative' }}>
-            🔔
+            通知
             {notifCount > 0 && <span className="badge">{notifCount}</span>}
           </button>
-          <button className="icon-btn" title="搜索" onClick={onOpenSearch}>🔍</button>
+          <button className="icon-btn" title="搜索" onClick={onOpenSearch}>搜索</button>
         </span>
       </div>
 
       <button className="side-item" onClick={onNewChat}>
-        <span className="icon">✎</span> 新聊天
+        <span className="icon">＋</span> 新聊天
       </button>
 
       <div className="side-section">项目</div>
@@ -40,14 +40,14 @@ export default function Sidebar({ sessions, activeSessionId, onOpenSession,
         <button key={p.key} className="side-item project"
                 title={`${p.name}（${p.sessions} 个会话）`}
                 onClick={() => onOpenSession({ id: p.key, name: p.name })}>
-          <span className="icon">▤</span>
+          <span className="proj-mark" />
           <span className="title">{p.name}</span>
           {p.deadline && <span className="proj-ddl">{p.deadline.slice(5)}</span>}
         </button>
       ))}
 
       <button className="side-item" onClick={onOpenPlugins}>
-        <span className="icon">⬡</span> skills配置
+        <span className="icon">技</span> skills配置
       </button>
 
       <div className="side-section">最近</div>

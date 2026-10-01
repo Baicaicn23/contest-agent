@@ -44,11 +44,11 @@ export default function CustomizePage({ onOpenSettings }) {
         <h1 style={{ fontSize: 20, margin: '0 0 14px' }}>Customize</h1>
         <button className={`side-item ${nav === 'plugins' ? 'active' : ''}`}
                 onClick={() => setNav('plugins')}>
-          <span className="icon">⬡</span> 插件
+          <span className="icon">插</span> 插件
         </button>
         <button className={`side-item ${nav === 'skills' ? 'active' : ''}`}
                 onClick={() => setNav('skills')}>
-          <span className="icon">📚</span> Skills
+          <span className="icon">技</span> Skills
         </button>
         <div className="side-section">Installed</div>
         <div style={{ padding: '4px 10px', fontSize: 13, color: 'var(--text-dim)' }}>

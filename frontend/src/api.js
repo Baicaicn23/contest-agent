@@ -115,11 +115,11 @@ export const COMMANDS = [
       const r = await api.identify(5)
       const lines = [`共扫描 ${r.count} 条通知，新增卡片 ${r.last_sync?.new ?? 0} 张：`, '']
       for (const o of r.outcomes) {
-        const mark = o.is_competition ? '✅ 比赛' : (o.from_memory ? '💾 记忆' : '❌ 非比赛')
+        const mark = o.is_competition ? '[比赛]' : (o.from_memory ? '[记忆命中]' : '[非比赛]')
         lines.push(`- ${mark} | ${o.title}`)
         if (o.card) lines.push(`  ${o.card.name}（${o.card.type}，截止 ${o.card.deadline ?? '见通知'}）`)
       }
-      if (r.budget_error) lines.push('', `⚠️ ${r.budget_error}`)
+      if (r.budget_error) lines.push('', `注意：${r.budget_error}`)
       return lines.join('\n')
     },
   },
@@ -138,9 +138,9 @@ export const COMMANDS = [
     desc: '为最近的比赛生成 PPT 大纲 + .pptx 文件（30-90 秒）',
     run: async () => {
       const r = await api.generate('ppt-outline')
-      const pptx = r.pptx_file ? `\n\n📊 幻灯片已导出：output/${r.pptx_file}（可用 PowerPoint/WPS 打开）` : ''
-      const hint = r.pptx_hint ? `\n\n⚠️ ${r.pptx_hint}` : ''
-      return `工具调用 ${r.tool_trace.length} 次，${r.success ? '完成 ✅' : '失败：' + r.error}${pptx}${hint}\n\n${r.final_text}`
+      const pptx = r.pptx_file ? `\n\n幻灯片已导出：output/${r.pptx_file}（可用 PowerPoint/WPS 打开）` : ''
+      const hint = r.pptx_hint ? `\n\n注意：${r.pptx_hint}` : ''
+      return `工具调用 ${r.tool_trace.length} 次，${r.success ? '完成' : '失败：' + r.error}${pptx}${hint}\n\n${r.final_text}`
     },
   },
   {
@@ -149,7 +149,7 @@ export const COMMANDS = [
     run: async () => {
       const r = await api.studyPath(null)
       const ok = r.citations.filter((c) => c.ok).length
-      return `引用校验 ${ok}/${r.citations.length} 通过，${r.success ? '完成 ✅' : '失败：' + (r.error || '仍有失效链接')}\n\n${r.final_text}`
+      return `引用校验 ${ok}/${r.citations.length} 通过，${r.success ? '完成' : '失败：' + (r.error || '仍有失效链接')}\n\n${r.final_text}`
     },
   },
   {

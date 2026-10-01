@@ -7,24 +7,24 @@ import UsageCard from '../components/UsageCard.jsx'
 // 外观（主题/字号）、用量（真台账）。其余分区为视觉占位。
 const NAV = [
   { group: '个人', items: [
-    { key: 'general', icon: '⚙', label: '常规' },
-    { key: 'import', icon: '↓', label: '导入', stub: true },
-    { key: 'appearance', icon: '☀', label: '外观' },
-    { key: 'voice', icon: '🎤', label: '语音', stub: true },
-    { key: 'config', icon: '🔧', label: '配置' },
-    { key: 'personalize', icon: '☺', label: '个性化', stub: true },
-    { key: 'mini', icon: '◕', label: 'Mini 与虚拟宠物', stub: true },
-    { key: 'shortcuts', icon: '⌘', label: '键盘快捷键', stub: true },
+    { key: 'general', icon: '', label: '常规' },
+    { key: 'import', icon: '', label: '导入', stub: true },
+    { key: 'appearance', icon: '', label: '外观' },
+    { key: 'voice', icon: '', label: '语音', stub: true },
+    { key: 'config', icon: '', label: '配置' },
+    { key: 'personalize', icon: '', label: '个性化', stub: true },
+    { key: 'mini', icon: '', label: 'Mini 与虚拟宠物', stub: true },
+    { key: 'shortcuts', icon: '', label: '键盘快捷键', stub: true },
   ]},
   { group: '集成', items: [
-    { key: 'plugins', icon: '⬡', label: '插件' },
-    { key: 'computer', icon: '🖥', label: '电脑操控', stub: true },
-    { key: 'browser', icon: '🌐', label: '浏览器', stub: true },
+    { key: 'plugins', icon: '', label: '插件' },
+    { key: 'computer', icon: '', label: '电脑操控', stub: true },
+    { key: 'browser', icon: '', label: '浏览器', stub: true },
   ]},
   { group: '编码', items: [
-    { key: 'hooks', icon: '⚓', label: '钩子', stub: true },
-    { key: 'git', icon: '⑂', label: 'Git' },
-    { key: 'env', icon: '▣', label: '环境', stub: true },
+    { key: 'hooks', icon: '', label: '钩子', stub: true },
+    { key: 'git', icon: '', label: 'Git' },
+    { key: 'env', icon: '', label: '环境', stub: true },
   ]},
 ]
 

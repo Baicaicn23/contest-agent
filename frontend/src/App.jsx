@@ -99,7 +99,7 @@ export default function App() {
       const result = await cmd.run()
       openChat(cmd.cmd, result)
     } catch (e) {
-      openChat(cmd.cmd, `⚠️ ${e.message}`)
+      openChat(cmd.cmd, `注意：${e.message}`)
     }
   }
 
@@ -231,7 +231,7 @@ export default function App() {
   )
 }
 
-// 截止日程视图（图标栏 ⏰）：只读列表。
+// 截止日程视图（图标栏）：只读列表。
 function DeadlinesView() {
   const [data, setData] = useState(null)
   useEffect(() => {
@@ -240,15 +240,13 @@ function DeadlinesView() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
       <h1 style={{ fontSize: 22, margin: '0 0 16px' }}>截止日程</h1>
-      {data?.error && <div className="models-empty">⚠️ {data.error}</div>}
+      {data?.error && <div className="models-empty">注意：{data.error}</div>}
       {data && !data.error && data.count === 0 && (
         <div className="models-empty">未来 30 天没有临近截止的比赛。</div>
       )}
       {data?.deadlines?.map((d) => (
         <a key={d.url} className="idea-row" href={d.url} target="_blank" rel="noreferrer">
-          <span className="idea-icon">
-            {d.remaining === 0 ? '🔴' : d.remaining === 1 ? '🟠' : d.remaining <= 3 ? '🟡' : '🔵'}
-          </span>
+          <span className={`idea-icon ddl-dot l${d.remaining <= 1 ? 3 : d.remaining <= 3 ? 2 : 1}`} />
           <span style={{ flex: 1 }}>
             {d.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>{d.label}</span>
           </span>

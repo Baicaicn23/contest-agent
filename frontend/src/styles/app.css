@@ -874,3 +874,45 @@ input, textarea, select {
 /* 修复：idea-row 是 <a> 时的浏览器默认链接样式（蓝色+下划线） */
 .idea-row { text-decoration: none; color: inherit; }
 .idea-row .idea-icon { text-decoration: none; }
+
+/* ============ M5 细节美化：去 emoji 后的替代元素 ============ */
+
+/* 图标栏文字按钮 */
+.rail-btn.rail-txt { font-size: 11px; width: 44px; }
+
+/* 侧栏项目行的小方块标记（替代图标） */
+.proj-mark {
+  width: 8px; height: 8px;
+  background: var(--bg-chip);
+  border: 1px solid var(--text-faint);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* 点子行的文字徽章（替代 emoji 图标） */
+.txt-badge {
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* 截止紧迫度彩点（替代 emoji 圆脸）：三级 + 中性 */
+.ddl-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--heat-0);
+}
+.ddl-dot.l1 { background: var(--heat-1); }
+.ddl-dot.l2 { background: var(--heat-2); }
+.ddl-dot.l3 { background: var(--heat-3); }
+
+/* 文字徽章不换行（两字徽章竖排的修复） */
+.idea-icon.txt-badge {
+  width: auto;
+  min-width: 34px;
+  white-space: nowrap;
+  font-size: 11px;
+}

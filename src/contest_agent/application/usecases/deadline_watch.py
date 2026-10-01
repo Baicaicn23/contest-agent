@@ -37,7 +37,7 @@ class DeadlineAlert:
 
     card: Competition
     remaining: int        # 距截止还有几天（0 = 今天截止）
-    label: str            # 人话紧迫度，如 "🔴 今天截止"
+    label: str            # 人话紧迫度，如 "今天截止"
 
     @property
     def url(self) -> str:
@@ -57,14 +57,14 @@ class DeadlineReport:
 def _label(remaining: int) -> str:
     """剩余天数 → 人话紧迫度。"""
     if remaining == 0:
-        return "🔴 今天截止"
+        return "今天截止"
     if remaining == 1:
-        return "🟠 明天截止（最后一天）"
+        return "明天截止（最后一天）"
     if remaining == 3:
-        return "🟡 还剩 3 天"
+        return "还剩 3 天"
     if remaining == 7:
-        return "🔵 还剩 7 天"
-    return f"⏳ 还剩 {remaining} 天"
+        return "还剩 7 天"
+    return f"还剩 {remaining} 天"
 
 
 class DeadlineSentinel:
@@ -105,9 +105,9 @@ class DeadlineSentinel:
 
         if report.alerts and push and self.pushers:
             title = (
-                f"⏰ 截止提醒：{len(report.alerts)} 场比赛临近截止"
+                f"截止提醒：{len(report.alerts)} 场比赛临近截止"
                 if len(report.alerts) > 1
-                else f"⏰ {report.alerts[0].label}：{report.alerts[0].card.name}"
+                else f"{report.alerts[0].label}：{report.alerts[0].card.name}"
             )
             lines = []
             for alert in sorted(report.alerts, key=lambda a: a.remaining):

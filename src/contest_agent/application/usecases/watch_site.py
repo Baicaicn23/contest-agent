@@ -29,7 +29,7 @@ def _format_digest(new_cards: list) -> tuple[str, str]:
     """把新卡片组装成 (标题, 正文)。纯文本 + Markdown，各通道通用。"""
     if not new_cards:
         return "", ""
-    title = f"🔔 发现 {len(new_cards)} 场新比赛"
+    title = f"发现 {len(new_cards)} 场新比赛"
     lines = []
     for card in new_cards:
         deadline = card.deadline.strftime("%Y-%m-%d") if card.deadline else "见通知"

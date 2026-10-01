@@ -147,7 +147,7 @@ class PlanStudyPath:
                 dead_list = "\n".join(f"- {c['url']}（{c['note']}）" for c in dead)
                 request = (
                     f"{base_request}\n\n"
-                    f"⚠️ 上一版材料里以下链接经验证失效，必须替换或删除后重新保存材料：\n{dead_list}"
+                    f"注意：上一版材料里以下链接经验证失效，必须替换或删除后重新保存材料：\n{dead_list}"
                 )
 
             async def tools_builder() -> MaterialTools:
