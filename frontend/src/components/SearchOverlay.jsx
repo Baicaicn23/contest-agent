@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 
-// 全局搜索 overlay（侧栏 🔍）：跨 会话/卡片/通知 的实时搜索。
+// 全局搜索 overlay（侧栏"搜索"按钮）：跨 会话/卡片/通知 的实时搜索。
 // 点会话 → 打开会话回放；点卡片/通知 → 打开原文链接。
 export default function SearchOverlay({ onClose, onOpenSession }) {
   const [q, setQ] = useState('')
@@ -17,12 +17,19 @@ export default function SearchOverlay({ onClose, onOpenSession }) {
 
   const has = result && (result.sessions.length || result.cards.length || result.notices.length)
 
+  // Esc 关闭挂 document（不只 input）：焦点在结果列表上时按 Esc 也要能关。
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <div className="modal-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="search-overlay">
+        <button className="icon-btn close-btn-tl" title="关闭（Esc）" onClick={onClose}>✕</button>
         <input autoFocus placeholder="搜索会话、比赛、通知…" value={q}
-               onChange={(e) => setQ(e.target.value)}
-               onKeyDown={(e) => e.key === 'Escape' && onClose()} />
+               onChange={(e) => setQ(e.target.value)} />
         {has && (
           <div className="search-results">
             {result.sessions.map((s) => (

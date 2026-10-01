@@ -10,7 +10,7 @@ import MsgBubble, { ToolBlock } from '../components/MsgBubble.jsx'
 // error → 红色助手消息。task_type 是 chat 的会话可以继续聊，其余只读。
 export default function ChatView({ sessionId, title, initialUser, initialAssistant,
                                    onSessionsChanged, bindProjectKey, projectName,
-                                   onCloseTab }) {
+                                   onCloseTab, className = '' }) {
   const [messages, setMessages] = useState([])   // {role, content, time?, tool?}
   const [chatSessionId, setChatSessionId] = useState(sessionId)  // null = 首发后由服务端分配
   const [taskType, setTaskType] = useState(sessionId ? null : 'chat')
@@ -120,7 +120,8 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
   const inputDisabled = busy || !loaded || (isReplay ?? false)
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <div className={className}
+         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {/* 会话头：标题 + 任务类型 chip + 右侧图标组 */}
       <div className="chat-head">
         <span className="title">{title || '新会话'}</span>

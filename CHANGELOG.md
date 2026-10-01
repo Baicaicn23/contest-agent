@@ -4,6 +4,34 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M6 界面美化与交互升级
+
+### 新增
+
+- **悬浮侧栏**：图标栏与侧栏脱离贴边（12px 留白 + 18px 圆角 + 常驻面板阴影），
+  主区 margin 补偿、去掉边框分隔；应用启动时两面板错峰滑入（40ms stagger）
+- **动效系统**：tokens 新增动效令牌（micro/std/exit 三档时长 + out/inout 两条曲线 +
+  面板阴影），全站过渡只取令牌；`prefers-reduced-motion` 下全部动画直达终态
+- **衔接动画**：视图切换淡入、弹层（搜索/通知/命令面板）遮罩淡入 + 面板浮出、
+  消息上浮入场（流式增量不动画）、工具面板右滑入、toggle 旋钮过冲弹性
+- **四态补齐**：全站可交互元素（侧栏项/标签页/chips/发送钮/插件按钮等 20 类）
+  统一 hover 过渡 + 按压缩陷（scale 0.97，主行动钮更弹）+ 全局键盘焦点环（focus-visible）
+
+### 变更
+
+- **关闭钮统一左上**（设置全页/Customize/搜索/通知/工具面板五面），Esc 全覆盖
+  （挂 document，焦点 anywhere 均可关）；toggle 旋钮从动画 `left` 改为 `transform`
+- 修复三个 M5 遗留：侧栏"通知"按钮误开搜索（NotificationsPop 从未被渲染，
+  且开启点击被根节点冒泡立即关闭）；关闭 Customize 后主区空白（rail 停留 'none'）；
+  历史会话回放点不开（回放标签 key 不满足主区显示条件）
+- 界面去 emoji 扫尾（本地 chip、工具调用折叠块标题）
+
+### 测试
+
+- 离线 160 项 + live 4 项全绿（纯前端改动，后端零改动）
+- browser-use 亮暗双主题实拍验收：悬浮侧栏留白/阴影、五面关闭钮左上、
+  hover/焦点环实拍、通知/搜索/工具面板开合、回放消息流、emoji 源码清零
+
 ## [Unreleased] — M5 Codex 化界面
 
 ### 新增

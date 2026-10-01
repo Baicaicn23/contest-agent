@@ -8,7 +8,7 @@ import Logo from '../components/Logo.jsx'
 // 大输入卡 + chips 行（项目/本地/分支）+ 截止临近 + 点子。
 export default function HomeView({ userName, project, onProjectChange, branch,
                                    accessFull, onToggleAccess, modelLabel,
-                                   onSend, onCommand, onCommandResult }) {
+                                   onSend, onCommand, onCommandResult, className = '' }) {
   const [deadlines, setDeadlines] = useState([])
 
   useEffect(() => {
@@ -16,7 +16,7 @@ export default function HomeView({ userName, project, onProjectChange, branch,
   }, [])
 
   return (
-    <div className="home-root">
+    <div className={`home-root ${className}`}>
       <div className="home-scroll">
         <div className="home-hero">
           <div className="cloud-icon">
@@ -60,7 +60,7 @@ export default function HomeView({ userName, project, onProjectChange, branch,
       <div className="composer-wrap" style={{ position: 'relative' }}>
         <div className="chips-row">
           <ProjectChip selected={project} onSelect={onProjectChange} />
-          <button className="pill-btn">💻 本地</button>
+          <button className="pill-btn">本地</button>
           <button className="pill-btn" title="当前 git 分支">⑂ {branch}</button>
           <div className="spacer" />
           <button className={`pill-btn ${accessFull ? 'pill-warn' : ''}`}

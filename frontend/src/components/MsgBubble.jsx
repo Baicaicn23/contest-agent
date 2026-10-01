@@ -63,7 +63,7 @@ export function ToolBlock({ name, args, result }) {
     .join(', ')
   return (
     <details className="tool-block">
-      <summary>🛠 工具调用：{name || '未知'}({argText})</summary>
+      <summary>工具调用：{name || '未知'}({argText})</summary>
       <div className="tool-body">{String(result || '').slice(0, 600)}</div>
     </details>
   )

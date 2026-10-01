@@ -6,7 +6,7 @@ import { UserBox } from './UserMenu.jsx'
 // 项目树 = 比赛卡自动派生的项目（M5），子行显示归属的会话数。
 export default function Sidebar({ sessions, activeSessionId, onOpenSession,
                                   onNewChat, onOpenSettings, onOpenSearch,
-                                  onOpenPlugins }) {
+                                  onOpenNotifications, onOpenPlugins }) {
   const [projects, setProjects] = useState([])
   const [notifCount, setNotifCount] = useState(0)
 
@@ -23,7 +23,8 @@ export default function Sidebar({ sessions, activeSessionId, onOpenSession,
         <span className="side-product">Contest Agent <span className="chev">⌄</span></span>
         <span className="side-head-icons">
           <button className="icon-btn" title={notifCount ? `${notifCount} 条紧急截止` : '通知'}
-                  onClick={onOpenSearch} style={{ position: 'relative' }}>
+                  onClick={(e) => { e.stopPropagation(); onOpenNotifications() }}
+                  style={{ position: 'relative' }}>
             通知
             {notifCount > 0 && <span className="badge">{notifCount}</span>}
           </button>

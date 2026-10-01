@@ -28,7 +28,71 @@ input, textarea, select {
 }
 ::placeholder { color: var(--text-faint); }
 
-/* ---------- 应用骨架：左栏 + 主区（主区 = 滚动内容 + 输入区 + 底条） ---------- */
+/* ---------- 交互基础（M6）：焦点环 / 动效可达性 ---------- */
+
+/* 键盘焦点环：只对"键盘导航"生效（focus-visible），鼠标点击不画圈。
+ * 全站统一 2px 品牌橙 + 2px 外扩，弹层里的控件同样吃到这条规则。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;   /* 焦点环随元素圆角，默认直角太生硬 */
+}
+
+/* 动效可达性：系统开了"减弱动态效果"时，全站动画/过渡直接到终态。
+ * @media 是浏览器级开关，不用 JS 参与。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- 四态通用段（M6）：hover / active / focus-visible ----------
+ * hover/active 只动 background/color/transform（GPU 友好），
+ * 按压反馈统一 scale(0.97)——"按下去了一点"的物理感。
+ * focus-visible 环在上方全局定义，这里不重复。 */
+
+.side-item, .session-item, .user-box-btn, .menu-item, .cmd-item, .idea-row,
+.pill-btn, .model-pill, .icon-btn, .tab-btn, .range-btn, .app-tab, .tab-add,
+.tab-close, .plugin-add, .save-btn, .rail-btn, .toggle,
+.seg-group button, .mode-switch button {
+  transition: background var(--dur-micro) var(--ease-out),
+              color var(--dur-micro) var(--ease-out),
+              border-color var(--dur-micro) var(--ease-out),
+              box-shadow var(--dur-micro) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out),
+              opacity var(--dur-micro) var(--ease-out);
+}
+
+.side-item:active, .session-item:active, .user-box-btn:active, .menu-item:active,
+.cmd-item:active, .idea-row:active, .plugin-add:active, .model-pill:active,
+.icon-btn:active, .tab-btn:active, .range-btn:active, .app-tab:active,
+.seg-group button:active, .mode-switch button:active, .tab-add:active,
+.tab-close:active {
+  transform: scale(0.97);
+}
+
+.pill-btn:hover {
+  background: var(--bg-chip);
+  border-color: var(--accent);
+  transform: translateY(-1px);   /* 微升：可点的药丸"浮"一下 */
+}
+.pill-btn:active { transform: scale(0.96); }
+
+.send-btn {
+  transition: transform var(--dur-micro) var(--ease-out),
+              background var(--dur-micro) var(--ease-out),
+              color var(--dur-micro) var(--ease-out);
+}
+.send-btn:not(:disabled):hover { background: var(--accent-hover); transform: scale(1.05); }
+.send-btn:not(:disabled):active { transform: scale(0.94); }
+.send-btn:disabled { transform: none; }
+
+/* ---------- 应用骨架（M6 悬浮式）：图标栏 + 侧栏脱离贴边、浮在画布上 ----------
+ * 布局模型：两个面板 position: fixed（脱离文档流），主区用 margin-left 补偿。
+ * margin-left = 12(窗口留白) + 52(图标栏) + 8(面板间距) + 248(侧栏) + 12(留白)。
+ * 主区不再画左边框——侧栏悬浮后，"分隔"由阴影和留白表达，不用线。 */
 
 .app { display: flex; height: 100vh; overflow: hidden; }
 
@@ -37,21 +101,71 @@ input, textarea, select {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-left: 1px solid var(--border-soft);
+  margin-left: 332px;
 }
 
 .main-scroll { flex: 1; overflow-y: auto; }
 
 /* ---------- 侧栏 ---------- */
 
-.sidebar {
-  width: 264px;
-  flex-shrink: 0;
+/* 图标栏：悬浮细长条。入场动画 = 从左侧 16px 处滑入淡现（app 加载播一次）。
+ * rail 在前、sidebar 延迟 40ms 跟上，两块面板有先后节奏（stagger）。 */
+.icon-rail {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: 52px;
+  z-index: 40;
   background: var(--bg-sidebar);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 4px;
+  animation: panel-in-left var(--dur-std) var(--ease-out) both;
+}
+.rail-top, .rail-bottom { display: flex; flex-direction: column; gap: 4px; }
+.rail-bottom { margin-top: auto; }
+.rail-btn {
+  width: 44px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;   /* 两字标签必须一行（44px 宽 + 12px 字号刚好放下） */
+  color: var(--text-dim);
+  transition: background var(--dur-micro) var(--ease-out),
+              color var(--dur-micro) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out);
+}
+.rail-btn:hover { background: var(--bg-chip); color: var(--text); }
+.rail-btn:active { transform: scale(0.94); }
+.rail-btn.active { background: var(--bg-chip); color: var(--text); }
+
+/* Codex 侧栏：与图标栏同款悬浮（同底色/圆角/阴影），错开 8px 间距。 */
+.sidebar {
+  position: fixed;
+  top: 12px;
+  left: 72px;
+  bottom: 12px;
+  width: 248px;
+  z-index: 40;
+  background: var(--bg-sidebar);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
   display: flex;
   flex-direction: column;
   padding: 12px;
   gap: 2px;
+  animation: panel-in-left var(--dur-std) var(--ease-out) 40ms both;
+}
+
+@keyframes panel-in-left {
+  from { transform: translateX(-16px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
 }
 
 .mode-switch {
@@ -348,6 +462,7 @@ input, textarea, select {
   box-shadow: var(--shadow-pop);
   overflow: hidden;
   z-index: 30;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
 }
 .cmd-item {
   display: flex;
@@ -417,7 +532,7 @@ input, textarea, select {
 
 .chat-scroll { padding: 12px 48px 24px; }
 
-.msg { margin: 18px 0; display: flex; flex-direction: column; }
+.msg { margin: 18px 0; display: flex; flex-direction: column; animation: msg-in var(--dur-micro) var(--ease-out) both; }
 .msg.user { align-items: flex-end; }
 .msg.assistant { align-items: flex-start; }
 
@@ -461,6 +576,7 @@ input, textarea, select {
   margin: 8px 0;
   overflow: hidden;
   max-width: 640px;
+  animation: msg-in var(--dur-micro) var(--ease-out) both;
 }
 .tool-block summary {
   cursor: pointer;
@@ -469,7 +585,10 @@ input, textarea, select {
   color: var(--text-dim);
   list-style: none;
   display: flex; gap: 8px; align-items: center;
+  border-radius: var(--radius-md);
+  transition: background var(--dur-micro) var(--ease-out);
 }
+.tool-block summary:hover { background: var(--bg-chip); }
 .tool-block summary::before { content: '▸'; }
 .tool-block[open] summary::before { content: '▾'; }
 .tool-block .tool-body {
@@ -484,7 +603,36 @@ input, textarea, select {
 .typing-dot { display: inline-block; animation: blink 1.2s infinite; color: var(--accent); }
 @keyframes blink { 0%,100% { opacity: 0.2; } 50% { opacity: 1; } }
 
-/* ---------- 弹层：用户菜单 / Settings ---------- */
+/* ---------- 衔接动画（M6）：三类入场动画 + 一个视图过渡类 ----------
+ * 只定义 keyframes 和四个工具类，具体挂在哪看下面各组件段。
+ * 全部只动 opacity/transform；reduced-motion 下由全局规则一键直达终态。 */
+
+/* 弹层出现：淡入 + 从 96% 放大到原尺寸（"从深处浮现"） */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+/* 遮罩出现：只淡不缩（缩的是里面的面板，遮罩缩放没有意义） */
+@keyframes mask-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* 消息入场：轻微上浮。只在新消息挂载时播一次，流式追加的文字不走这条 */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+/* 工具面板从右侧滑入（它是分屏面板，方向感和弹层不同） */
+@keyframes panel-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 视图切换过渡：挂在各视图根元素上。React 条件渲染卸载旧视图没有退场时机
+ * （卸载是同步的），所以只做"进入"动画——200ms 淡入下移归位，足够消除跳变感。 */
+.view-enter { animation: pop-in var(--dur-std) var(--ease-out) both; }
+
+/* ---------- 弹层：用户菜单 / Settings（开合动画：遮罩淡入 + 面板 pop-in） ---------- */
 
 .popover {
   position: absolute;
@@ -495,6 +643,7 @@ input, textarea, select {
   padding: 6px;
   z-index: 60;
   min-width: 230px;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
 }
 .popover .menu-user { padding: 8px 10px 10px; }
 .popover .menu-user .name { font-weight: 600; font-size: 14px; }
@@ -523,6 +672,7 @@ input, textarea, select {
   align-items: center;
   justify-content: center;
   z-index: 100;
+  animation: mask-in var(--dur-std) var(--ease-out) both;
 }
 .modal {
   background: var(--bg);
@@ -532,6 +682,7 @@ input, textarea, select {
   height: min(680px, 88vh);
   display: flex;
   overflow: hidden;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
 }
 .settings-nav {
   width: 250px;
@@ -629,30 +780,9 @@ input, textarea, select {
 
 /* ============ M5：Codex 式外壳 ============ */
 
-/* 图标栏 */
-.icon-rail {
-  width: 52px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border-soft);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
-  gap: 4px;
-}
-.rail-top, .rail-bottom { display: flex; flex-direction: column; gap: 4px; }
-.rail-bottom { margin-top: auto; }
-.rail-btn {
-  width: 36px; height: 36px;
-  border-radius: var(--radius-sm);
-  font-size: 17px;
-  color: var(--text-dim);
-}
-.rail-btn:hover { background: var(--bg-chip); color: var(--text); }
-.rail-btn.active { background: var(--bg-chip); color: var(--text); }
+/* 图标栏/侧栏的悬浮样式在上方"应用骨架"段定义（M6 改造后唯一的定义处）。 */
 
 /* Codex 侧栏 */
-.sidebar.codex { width: 264px; }
 .side-head {
   display: flex;
   align-items: center;
@@ -751,18 +881,19 @@ input, textarea, select {
 .palette-list { max-height: 240px; overflow-y: auto; }
 .cmd-item .check { margin-left: auto; color: var(--accent); }
 
-/* 设置全页 */
+/* 设置全页（遮罩淡入；关闭钮统一左上，M6 规范） */
 .fullpage-mask {
   position: fixed; inset: 0;
   background: var(--bg);
   z-index: 90;
   overflow: hidden;
+  animation: mask-in var(--dur-std) var(--ease-out) both;
 }
-.fullpage-close { position: fixed; top: 18px; right: 22px; z-index: 95; }
+.fullpage-close { position: fixed; top: 14px; left: 14px; z-index: 95; }
 .settings-page { height: 100%; display: flex; flex-direction: column; }
 .settings-page-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px 8px;
+  padding: 16px 24px 8px 56px;   /* 左侧 56px = 给左上角关闭钮让位 */
 }
 .settings-page-head h1 { font-size: 20px; margin: 0; }
 .settings-page-body { flex: 1; display: flex; overflow: hidden; }
@@ -777,13 +908,14 @@ input, textarea, select {
 .card-title { font-size: 15px; font-weight: 600; margin: 10px 0 4px; }
 .mono { font-family: var(--font-mono); font-size: 13px; }
 
-/* 开关（Toggle） */
+/* 开关（Toggle）：knob 用 transform 位移（不动 left，GPU 合成不重排），
+ * 曲线带一点过冲（1.56 > 1），滑到头轻轻"弹"一下再稳住。 */
 .toggle {
   width: 44px; height: 24px;
   border-radius: 999px;
   background: var(--bg-chip);
   position: relative;
-  transition: background 0.15s;
+  transition: background 0.15s var(--ease-out);
 }
 .toggle.on { background: var(--accent); }
 .toggle .knob {
@@ -792,10 +924,11 @@ input, textarea, select {
   width: 20px; height: 20px;
   border-radius: 50%;
   background: #fff;
-  transition: left 0.15s;
+  transform: translateX(0);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
   box-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }
-.toggle.on .knob { left: 22px; }
+.toggle.on .knob { transform: translateX(20px); }
 
 /* 插件页 */
 .customize-root { height: 100%; display: flex; }
@@ -833,8 +966,9 @@ input, textarea, select {
 .plugin-add:hover { background: var(--bg-chip); color: var(--text); }
 .plugin-cfg { margin-left: auto; font-size: 11.5px; color: var(--text-faint); }
 
-/* 搜索 overlay */
+/* 搜索 overlay：关闭钮占输入框左上，输入文字右移让位 */
 .search-overlay {
+  position: relative;
   width: min(560px, 90vw);
   margin: 10vh auto 0;
   background: var(--bg-elev);
@@ -843,20 +977,23 @@ input, textarea, select {
   box-shadow: var(--shadow-pop);
   overflow: hidden;
   height: fit-content;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
 }
 .search-overlay > input {
   width: 100%;
-  padding: 16px 18px;
+  padding: 16px 18px 16px 48px;
   border: none;
   outline: none;
   background: transparent;
   font-size: 15px;
   border-bottom: 1px solid var(--border-soft);
 }
+.search-overlay .close-btn-tl { top: 10px; left: 10px; }
 .search-results { max-height: 50vh; overflow-y: auto; padding: 6px; }
 
-/* 工具分屏面板 */
+/* 工具分屏面板（从右滑入；关闭钮在面板左上角） */
 .tool-panel {
+  position: relative;
   width: 300px;
   flex-shrink: 0;
   border-left: 1px solid var(--border-soft);
@@ -864,8 +1001,12 @@ input, textarea, select {
   flex-direction: column;
   padding: 12px;
   gap: 6px;
+  animation: panel-in-right var(--dur-std) var(--ease-out) both;
 }
-.tool-panel-head { display: flex; align-items: center; justify-content: space-between; }
+.tool-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-left: 34px;   /* 左侧让位给左上角关闭钮 */
+}
 .tool-panel-section {
   font-size: 12px; color: var(--text-faint);
   margin: 6px 4px 2px;
@@ -915,4 +1056,24 @@ input, textarea, select {
   min-width: 34px;
   white-space: nowrap;
   font-size: 11px;
+}
+
+/* ============ M6：关闭钮统一左上 + 通知弹层定位 ============ */
+
+/* 左上角关闭钮：所有可关闭面（搜索/通知/工具面板/全页）统一规格。
+ * 30×30 与 icon-btn 同尺寸；配合 :focus-visible 全局焦点环。 */
+.close-btn-tl {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+}
+
+/* 通知弹层：挂在侧栏头部下方（rail 12+52+8=72 起步，与侧栏左对齐，
+ * 顶部 60px 避开侧栏头部的通知/搜索按钮行）。 */
+.notif-pop {
+  position: fixed;
+  top: 60px;
+  left: 72px;
+  width: 272px;
+  z-index: 70;
 }

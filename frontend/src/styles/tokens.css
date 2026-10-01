@@ -47,6 +47,9 @@
   /* 弹层阴影 */
   --shadow-pop: 0 8px 32px rgba(31, 30, 29, 0.14), 0 2px 8px rgba(31, 30, 29, 0.08);
 
+  /* 悬浮面板阴影（M6：侧栏/图标栏常驻悬浮，比弹层更柔、更"沉底"） */
+  --shadow-panel: 0 6px 24px rgba(31, 30, 29, 0.10), 0 1px 4px rgba(31, 30, 29, 0.06);
+
   /* 代码 diff 预览（Settings 弹窗里的装饰块） */
   --diff-bg: #ffffff;
   --diff-line-add: #e8f2e4;
@@ -86,6 +89,7 @@
   --heat-3: #d97757;
 
   --shadow-pop: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-panel: 0 6px 24px rgba(0, 0, 0, 0.38), 0 1px 4px rgba(0, 0, 0, 0.28);
 
   --diff-bg: #1f1e1d;
   --diff-line-add: #263322;
@@ -109,4 +113,17 @@
   --radius-lg: 18px;
   --radius-md: 12px;
   --radius-sm: 8px;
+
+  /* ============ 动效令牌（M6） ============
+   * 三档时长 + 两条缓动曲线，所有 transition/animation 只从这里取值。
+   * 微反馈（hover/按压）用 micro；弹层与视图入场用 std；
+   * 退出比进入快是硬规矩——回退操作要"跟手"，卡 200ms 就觉得迟钝。
+   * 曲线：ease-out 用于"出现"（快出慢停，像物体滑入到位）；
+   *       ease-inout 用于"状态切换"（开关、指示条这类来回运动）。
+   */
+  --dur-micro: 120ms;
+  --dur-std: 200ms;
+  --dur-exit: 150ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-inout: cubic-bezier(0.4, 0, 0.6, 1);
 }

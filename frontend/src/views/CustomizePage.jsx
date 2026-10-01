@@ -41,7 +41,8 @@ export default function CustomizePage({ onOpenSettings }) {
   return (
     <div className="customize-root">
       <div className="settings-nav page">
-        <h1 style={{ fontSize: 20, margin: '0 0 14px' }}>Customize</h1>
+        {/* 左上 14px 处是壳层的关闭钮，标题右移让位 */}
+        <h1 style={{ fontSize: 20, margin: '0 0 14px 34px' }}>Customize</h1>
         <button className={`side-item ${nav === 'plugins' ? 'active' : ''}`}
                 onClick={() => setNav('plugins')}>
           <span className="icon">插</span> 插件

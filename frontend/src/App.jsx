@@ -57,6 +57,20 @@ export default function App() {
     api.gitBranch().then((r) => setBranch(r.branch)).catch(() => {})
   }, [])
 
+  // Customize 全页没有自己的 Esc 监听（SettingsPage 有），在壳层统一补：
+  // 按 Esc 关 Customize，避免只能精准点到左上角小叉。
+  // 打开 Customize 时 rail 被置为 'none'（主区让位），关闭后要回工作台，否则主区空白。
+  const closeCustomize = () => {
+    setCustomizeOpen(false)
+    setRail((r) => (r === 'none' ? 'home' : r))
+  }
+  useEffect(() => {
+    if (!customizeOpen) return
+    const onKey = (e) => { if (e.key === 'Escape') closeCustomize() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [customizeOpen])
+
   const toggleAccess = async () => {
     try {
       await api.setAccess(!accessFull)
@@ -103,9 +117,11 @@ export default function App() {
     }
   }
 
-  // 主区：激活 tab 是聊天 → ChatView；否则按 rail 显示面板
+  // 主区：激活 tab 是聊天/回放 → ChatView；否则按 rail 显示面板。
+  // 回放 tab 的 key 以 replay- 开头（TabBar 只展示 chat- 标签，回放不占标签位）。
   const activeTabObj = tabs.find((t) => t.key === activeTab) || tabs[0]
-  const showChat = rail === 'home' && activeTabObj?.key?.startsWith('chat')
+  const showChat = rail === 'home' &&
+    (activeTabObj?.key?.startsWith('chat') || activeTabObj?.key?.startsWith('replay'))
 
   const modelLabel = config?.models?.find((m) => m.name === config?.active_model)?.model || '…'
 
@@ -122,6 +138,7 @@ export default function App() {
           setTabs((ts) => [...ts, tab]); setActiveTab(tab.key) }}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSearch={() => setSearchOpen(true)}
+        onOpenNotifications={() => setNotifOpen(true)}
         onOpenPlugins={() => { setCustomizeOpen(true); setRail('none') }}
       />
 
@@ -148,8 +165,10 @@ export default function App() {
                   onClick={() => setToolPanel(!toolPanel)}>▤</button>
         </div>
 
+        {/* 各视图根都挂 view-enter：条件渲染换视图时 200ms 淡入，消除跳变感 */}
         {rail === 'home' && showChat && (
           <ChatView key={activeTab}
+                    className="view-enter"
                     sessionId={activeTabObj.sessionId}
                     title={activeTabObj.title}
                     initialUser={activeTabObj.initialUser}
@@ -161,7 +180,8 @@ export default function App() {
         )}
 
         {rail === 'home' && !showChat && (
-          <HomeView userName="momo"
+          <HomeView className="view-enter"
+                    userName="momo"
                     project={project}
                     onProjectChange={setProject}
                     branch={branch}
@@ -174,7 +194,7 @@ export default function App() {
         )}
 
         {rail === 'stats' && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+          <div className="view-enter" style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
             <h1 style={{ fontSize: 22, margin: '0 0 16px' }}>统计</h1>
             <UsageCard />
           </div>
@@ -185,7 +205,7 @@ export default function App() {
         {customizeOpen && (
           <div className="fullpage-mask">
             <CustomizePage onOpenSettings={() => setSettingsOpen(true)} />
-            <button className="icon-btn fullpage-close" onClick={() => setCustomizeOpen(false)}>✕</button>
+            <button className="icon-btn fullpage-close" onClick={closeCustomize}>✕</button>
           </div>
         )}
 
@@ -222,6 +242,12 @@ export default function App() {
 
       {toolPanel && <ToolPanel onClose={() => setToolPanel(false)} />}
 
+      {notifOpen && (
+        <NotificationsPop
+          onClose={() => setNotifOpen(false)}
+          onOpenDeadlines={() => setRail('deadlines')} />
+      )}
+
       {searchOpen && (
         <SearchOverlay onClose={() => setSearchOpen(false)} onOpenSession={openSessionReplay} />
       )}
@@ -238,7 +264,7 @@ function DeadlinesView() {
     api.deadlines().then(setData).catch((e) => setData({ deadlines: [], error: e.message }))
   }, [])
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+    <div className="view-enter" style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
       <h1 style={{ fontSize: 22, margin: '0 0 16px' }}>截止日程</h1>
       {data?.error && <div className="models-empty">注意：{data.error}</div>}
       {data && !data.error && data.count === 0 && (

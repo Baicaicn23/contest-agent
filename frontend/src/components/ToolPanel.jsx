@@ -19,11 +19,18 @@ export default function ToolPanel({ onClose }) {
     }
   }
 
+  // Esc 关闭：焦点停在文件列表按钮上时按 Esc 也要能收起面板。
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   return (
     <aside className="tool-panel">
       <div className="tool-panel-head">
+        <button className="icon-btn close-btn-tl" title="关闭（Esc）" onClick={onClose}>✕</button>
         <span style={{ fontWeight: 600, fontSize: 14 }}>工具</span>
-        <button className="icon-btn" onClick={onClose}>✕</button>
       </div>
       <div className="tool-panel-section">文件（output/）</div>
       <div style={{ flex: 1, overflowY: 'auto' }}>

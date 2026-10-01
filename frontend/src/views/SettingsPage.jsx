@@ -55,8 +55,8 @@ export default function SettingsPage({ config, onConfigChange, theme, setTheme,
   return (
     <div className="settings-page">
       <div className="settings-page-head">
+        {/* 关闭钮在 App 壳层的 fullpage-close（左上角统一规格），这里不再放第二个 */}
         <h1>设置</h1>
-        <button className="icon-btn" onClick={onClose}>✕</button>
       </div>
       <div className="settings-page-body">
         <div className="settings-nav page">
