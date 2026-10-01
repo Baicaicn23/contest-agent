@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -122,6 +123,10 @@ class ChatRequest(BaseModel):
 
 class ChatCloseRequest(BaseModel):
     session_id: int
+
+
+class TerminalRequest(BaseModel):
+    command: str
 
 
 def _notice_to_dict(notice) -> dict:
@@ -592,16 +597,45 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
     @app.get("/api/files/content")
     def file_content(name: str) -> dict:
         """读取 output/ 下某个文件的前 2000 字（工具面板预览）。
-        只允许纯文件名（防路径穿越），且文件必须真实存在于 output/。"""
+
+        路径安全：允许相对子路径（如 notifications/xxx.md，M7 修复——
+        之前只许纯文件名，子目录文件一点预览就 422），
+        但 resolve 后必须仍落在 output/ 里面（防 ../ 穿越到项目外）。
+        """
         if usecases is None or usecases.workspace is None:
             raise HTTPException(503, "文件面板未装配")
-        if "/" in name or "\\" in name or ".." in name:
+        if not name or ".." in name or name.startswith(("/", "\\")):
             raise HTTPException(422, "非法文件名")
-        target = PROJECT_ROOT / "output" / name
+        output_root = Path(usecases.workspace.output_dir).resolve()
+        target = (output_root / name).resolve()
+        if not target.is_relative_to(output_root):
+            raise HTTPException(422, "非法文件名")
         if not target.is_file():
             raise HTTPException(404, f"文件 {name} 不存在")
         text = target.read_text(encoding="utf-8", errors="replace")[:2000]
         return {"name": name, "content": text}
+
+    @app.get("/api/tree")
+    def file_tree() -> dict:
+        """output/ 目录树（M7 右侧文件树面板）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "文件面板未装配")
+        return usecases.workspace.file_tree()
+
+    @app.post("/api/terminal")
+    def terminal(req: TerminalRequest) -> dict:
+        """在项目根目录执行一条命令（M7 终端面板）。
+
+        超时/输出截断都在装配根的执行回调里；这里只管装配检查与空命令。
+        """
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "终端未装配")
+        try:
+            return usecases.workspace.run_terminal(req.command)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        except RuntimeError as error:
+            raise HTTPException(503, str(error))
 
     @app.get("/api/git/branch")
     def git_branch() -> dict:

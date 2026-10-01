@@ -4,6 +4,34 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M7 工作台图二化与右侧工具坞
+
+### 新增
+
+- **侧栏图二化**（对照竞品截图）：顶部四操作入口（新建任务 ⌘N / 搜索 ⌘K /
+  自动化 / 插件市场）+ 项目树两级（项目 → 归属会话子行，任务徽章 + 相对时间，
+  grid 轨道展开过渡）+ 最近（未归属会话）；"自动化"弹层显示真实盯梢状态、
+  立即扫描（不花 LLM，POST /scan）与 cron 接入命令
+- **右侧工具坞 RightDock**（可开合悬浮面板，替代旧 ToolPanel）：
+  文件树 tab（GET /api/tree 递归树，目录折叠，点文件预览）+
+  终端 tab（POST /api/terminal 在项目根执行命令；30 秒超时、输出截断 10KB、
+  结构化返回 exit 码与耗时；前端一次性会话历史，运行占位原位替换）
+- **全局快捷键**：⌘K/Ctrl+K 搜索、⌘N/Ctrl+N 新建任务；三处"新聊天"收敛为 newChat()
+
+### 变更
+
+- /api/files/content 修复：允许相对子路径（notifications/xx.md 此前预览必失败），
+  resolve 后必须落在 output/ 内（防穿越）；该端点改用装配注入的 output_dir
+- WorkspaceService 新增 command_runner 注入点（终端执行回调，沿用
+  "application 层不碰 subprocess"惯例）；旧 ToolPanel.jsx 删除
+
+### 测试
+
+- 离线 166 项（新增 M7 六项：树形/排序/隐藏文件/空目录/终端委托与守卫/HTTP+穿越防护）
+  + live 4 项全绿
+- browser-use 实测：左栏四入口/两级树/自动化真扫描（10 条新增）/文件树展开/
+  子目录预览/终端真跑 sai cost（136 次调用 ¥0.9469 真台账）/⌘K/暗色三面板
+
 ## [Unreleased] — M6 界面美化与交互升级
 
 ### 新增

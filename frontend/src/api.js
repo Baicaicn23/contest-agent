@@ -56,6 +56,9 @@ export const api = {
   skills: () => jfetch('/api/skills'),
   files: () => jfetch('/api/files'),
   fileContent: (name) => jfetch(`/api/files/content?name=${encodeURIComponent(name)}`),
+  tree: () => jfetch('/api/tree'),
+  terminal: (command) =>
+    jfetch('/api/terminal', { method: 'POST', body: JSON.stringify({ command }) }),
   gitBranch: () => jfetch('/api/git/branch'),
   plugins: () => jfetch('/api/plugins'),
   togglePlugin: (id, enabled) =>

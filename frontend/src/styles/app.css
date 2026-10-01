@@ -1077,3 +1077,243 @@ input, textarea, select {
   width: 272px;
   z-index: 70;
 }
+
+/* ============ M7：图二化侧栏 + 右侧工具坞 ============ */
+
+/* --- 侧栏操作入口区（新建任务/搜索/自动化/插件市场） --- */
+
+/* 行尾快捷键标注（⌘N / ⌘K，图二同款灰字） */
+.side-shortcut {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* --- 项目树：项目 → 归属会话（两级） --- */
+
+/* 展开箭头：▸ 旋转 90° 变 ▾，过渡比换字符顺滑 */
+.tree-chev {
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+.tree-chev.down { transform: rotate(90deg); }
+
+/* 展开区：grid 轨道 0fr→1fr 过渡（纯 CSS 的"高度动画"，不触发布局抖动。
+ * 计划书许可的两种方案之一，比 max-height 的延迟问题干净）。 */
+.tree-kids {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-std) var(--ease-out);
+}
+.tree-kids.open { grid-template-rows: 1fr; }
+.tree-kids-inner { overflow: hidden; min-height: 0; }
+
+/* 会话子行：缩进 + 任务徽章 + 相对时间 */
+.session-item.sub { padding-left: 30px; font-size: 13px; }
+.sub-badge {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+  flex-shrink: 0;
+}
+.sub-time, .session-item .sub-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.tree-empty {
+  padding: 4px 10px 6px 30px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* --- 自动化弹层 --- */
+
+.automation-pop {
+  position: fixed;
+  top: 172px;
+  left: 84px;
+  width: 300px;
+  z-index: 70;
+}
+.auto-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px 8px;
+  font-size: 12.5px;
+}
+.auto-label { color: var(--text-dim); }
+.auto-value { color: var(--text); }
+.auto-result {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.auto-hint {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.8;
+}
+.auto-hint .mono {
+  display: block;
+  font-size: 11px;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: 5px;
+  padding: 2px 6px;
+  word-break: break-all;
+}
+
+/* --- 右侧工具坞（悬浮面板：文件树 / 终端） --- */
+
+/* 悬浮化：同侧栏设计语言（留白/圆角/阴影），从右滑入。 */
+.tool-panel.dock {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 320px;
+  z-index: 45;
+  background: var(--bg-sidebar);
+  border-left: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+}
+
+/* 面板内 tab 切换（文件树/终端），mode-switch 同款分段样式 */
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-chip);
+  border-radius: 8px;
+  padding: 2px;
+}
+.dock-tab {
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.dock-tab.active {
+  background: var(--bg-elev);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* 文件树 */
+.dock-tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dock-tree-scroll { flex: 1; overflow-y: auto; }
+.tree-dir, .tree-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  padding-right: 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-file { color: var(--text-dim); }
+.tree-file:hover { background: var(--bg-chip); color: var(--text); }
+.tree-file-mark {
+  width: 7px; height: 8px;
+  border: 1px solid var(--text-faint);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.tree-dir .tree-chev { width: auto; }
+
+/* 文件预览（树 tab 底部） */
+.dock-preview {
+  border-top: 1px solid var(--border-soft);
+  padding: 8px 10px;
+  max-height: 45%;
+  overflow: auto;
+}
+.dock-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.dock-preview pre {
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* 终端 */
+.dock-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dock-term-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 0 4px 6px;
+}
+.dock-term-scroll {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-inset);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.term-cmd { color: var(--text); word-break: break-all; }
+.term-dollar { color: var(--accent); font-weight: 600; }
+.term-out {
+  margin: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-dim);
+}
+.term-out.err { color: #c0503a; }
+.term-meta { font-size: 10.5px; color: var(--text-faint); margin: 2px 0 8px; }
+.term-entry { margin-bottom: 2px; }
+.dock-term-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.dock-term-input input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+}

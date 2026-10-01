@@ -5,7 +5,7 @@ import Sidebar from './components/Sidebar.jsx'
 import TabBar, { useTabs } from './components/TabBar.jsx'
 import SearchOverlay from './components/SearchOverlay.jsx'
 import NotificationsPop from './components/NotificationsPop.jsx'
-import ToolPanel from './components/ToolPanel.jsx'
+import RightDock from './components/RightDock.jsx'
 import SettingsPage from './views/SettingsPage.jsx'
 import CustomizePage from './views/CustomizePage.jsx'
 import HomeView from './views/HomeView.jsx'
@@ -71,6 +71,23 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey)
   }, [customizeOpen])
 
+  // 全局快捷键（图二同款标注）：⌘K/ Ctrl+K 搜索，⌘N/ Ctrl+N 新建任务。
+  // ⌘N 浏览器可能抢走（新窗口），拦不住也无碍——按钮仍在侧栏。
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      if (e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      } else if (e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        newChat()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+
   const toggleAccess = async () => {
     try {
       await api.setAccess(!accessFull)
@@ -89,6 +106,14 @@ export default function App() {
     setTabs((ts) => [...ts, tab])
     setActiveTab(tab.key)
     setRail('home')
+  }
+
+  // 新建任务（侧栏入口 / 标签栏 ＋ / 快捷键 ⌘N 三处共用）
+  const newChat = () => {
+    setRail('home')
+    const tab = { key: `chat-${Date.now()}`, title: '新聊天', sessionId: null }
+    setTabs((ts) => [...ts, tab])
+    setActiveTab(tab.key)
   }
 
   const openSessionReplay = async (session) => {
@@ -133,9 +158,7 @@ export default function App() {
         sessions={sessions}
         activeSessionId={showChat ? activeTabObj?.sessionId : null}
         onOpenSession={openSessionReplay}
-        onNewChat={() => { setRail('home')
-          const tab = { key: `chat-${Date.now()}`, title: '新聊天', sessionId: null }
-          setTabs((ts) => [...ts, tab]); setActiveTab(tab.key) }}
+        onNewChat={newChat}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenNotifications={() => setNotifOpen(true)}
@@ -158,10 +181,10 @@ export default function App() {
               }
               return rest
             })}
-            onNew={() => openChat(null)}
+            onNew={newChat}
           />
           <div className="spacer" />
-          <button className="icon-btn" title="工具面板（output 文件）"
+          <button className="icon-btn" title="工具坞：文件树 / 终端"
                   onClick={() => setToolPanel(!toolPanel)}>▤</button>
         </div>
 
@@ -240,7 +263,7 @@ export default function App() {
         </div>
       </main>
 
-      {toolPanel && <ToolPanel onClose={() => setToolPanel(false)} />}
+      {toolPanel && <RightDock onClose={() => setToolPanel(false)} />}
 
       {notifOpen && (
         <NotificationsPop

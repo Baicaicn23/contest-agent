@@ -61,6 +61,7 @@ class WorkspaceService:
         skills_dir: Path,
         output_dir: Path,
         git_runner: Callable[[], str],
+        command_runner: "Callable[[str], dict] | None" = None,
     ):
         self.competitions = competition_repository
         self.sessions = session_archive
@@ -71,6 +72,9 @@ class WorkspaceService:
         self.skills_dir = skills_dir
         self.output_dir = output_dir
         self.git_runner = git_runner
+        # 终端执行回调（M7 右侧工具坞）：同样由装配根注入，本层不碰 subprocess。
+        # None = 装配根没给（测试场景），run_terminal 会拒绝执行。
+        self.command_runner = command_runner
 
     # ---------- 项目 ----------
 
@@ -214,6 +218,63 @@ class WorkspaceService:
                 })
         entries.sort(key=lambda e: e["modified"], reverse=True)
         return entries[:50]
+
+    def file_tree(self, max_depth: int = 6) -> dict:
+        """output/ 目录的树形结构（M7 右侧文件树用）。
+
+        目录排前面、同层按名排序；隐藏文件（.开头）直接跳过；
+        限深 6 层——防符号链接成环或异常深的目录把请求拖死。
+        """
+        if not self.output_dir.is_dir():
+            return {"root": "output", "children": []}
+        return {
+            "root": self.output_dir.name,
+            "children": self._walk_dir(self.output_dir, depth=0, max_depth=max_depth),
+        }
+
+    def _walk_dir(self, directory: Path, depth: int, max_depth: int) -> list[dict]:
+        """递归一层目录 → 节点列表。目录节点 {"type":"dir","children":[...]}，
+        文件节点 {"type":"file","size":字节数}。"""
+        try:
+            entries = sorted(
+                directory.iterdir(),
+                key=lambda p: (p.is_file(), p.name.lower()),  # 目录在前（False<True）
+            )
+        except OSError:
+            return []  # 无权限/已消失的目录：安静地当作空目录
+        nodes: list[dict] = []
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                nodes.append({
+                    "name": entry.name,
+                    "type": "dir",
+                    "children": (
+                        self._walk_dir(entry, depth + 1, max_depth)
+                        if depth + 1 < max_depth else []
+                    ),
+                })
+            elif entry.is_file():
+                try:
+                    size = entry.stat().st_size
+                except OSError:
+                    size = 0
+                nodes.append({"name": entry.name, "type": "file", "size": size})
+        return nodes
+
+    def run_terminal(self, command: str) -> dict:
+        """在项目根目录执行一条 shell 命令（M7 终端面板）。
+
+        执行细节全部在装配根注入的 command_runner 里（超时/截断在那边）；
+        这里只做两件事：没配 runner 就拒绝、空命令拒绝。
+        """
+        command = (command or "").strip()
+        if not command:
+            raise ValueError("命令不能为空")
+        if self.command_runner is None:
+            raise RuntimeError("终端执行未装配")
+        return self.command_runner(command)
 
     def git_branch(self) -> str:
         """当前 git 分支（composer 的分支 chip）。失败返回 'main' 兜底。"""

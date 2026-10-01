@@ -536,9 +536,10 @@ def build_workspace_service() -> WorkspaceService:
     """组装工作台面板服务（M5）：项目/搜索/通知/技能/文件/git/插件的数据源。
 
     环境细节以注入方式进来：skills 与 output 是目录 Path，
-    git 分支用 subprocess 回调——application 层不碰文件系统与子进程。
+    git 分支与终端命令用 subprocess 回调——application 层不碰文件系统与子进程。
     """
     import subprocess
+    import time
 
     settings = load_settings_or_raise()
 
@@ -550,6 +551,39 @@ def build_workspace_service() -> WorkspaceService:
         )
         return result.stdout
 
+    def command_runner(command: str) -> dict:
+        """右侧终端面板的执行回调（M7）。
+
+        安全取舍：本项目是本地单机工具，且界面已有"完全访问"总闸语义——
+        终端就是本机用户跑自己的命令，不做白名单；工程上守住三条底线：
+        30 秒超时、输出截断到 10KB（防一条命令灌爆响应）、stdout+stderr 合并返回。
+        """
+        started = time.monotonic()
+        try:
+            proc = subprocess.run(
+                command, shell=True,
+                cwd=PROJECT_ROOT,
+                capture_output=True, text=True, timeout=30,
+            )
+            output = (proc.stdout or "") + (proc.stderr or "")
+            return {
+                "command": command,
+                "exit_code": proc.returncode,
+                "output": output[-10_000:],   # 只留最后 10KB：报错信息通常在尾部
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "command": command, "exit_code": -1,
+                "output": "（超时：命令 30 秒未结束，已终止）",
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+        except OSError as error:
+            return {
+                "command": command, "exit_code": -1,
+                "output": f"执行失败：{error}", "duration_ms": 0,
+            }
+
     return WorkspaceService(
         competition_repository=build_competition_repository(),
         session_archive=build_session_repository(),
@@ -560,6 +594,7 @@ def build_workspace_service() -> WorkspaceService:
         skills_dir=PROJECT_ROOT / "skills",
         output_dir=PROJECT_ROOT / "output",
         git_runner=git_runner,
+        command_runner=command_runner,
     )
 
 
