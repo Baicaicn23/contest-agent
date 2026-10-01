@@ -1492,6 +1492,38 @@ input, textarea, select {
   border: 1px solid var(--border-soft);
 }
 
+/* ============ M9.1：首页整组居中 + 项目行 ➕ 新建对话 ============ */
+
+/* hero + 输入卡作为一组垂直居中（略偏上，视觉重心舒服），
+ * 不再"hero 居中、输入框贴底"两头分家。 */
+.home-center {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 14vh;
+}
+.home-center .home-hero { margin-bottom: 30px; }
+
+/* 项目行尾 ➕：hover 显示（与截止角标互斥，避免拥挤），
+ * 点击在该项目下新建对话（首条消息自动归属）。 */
+.proj-add {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  border-radius: 5px;
+  padding: 3px;
+  opacity: 0;
+  transition: opacity var(--dur-micro) var(--ease-out),
+              color var(--dur-micro) var(--ease-out),
+              background var(--dur-micro) var(--ease-out);
+}
+.side-item.project:hover .proj-add { opacity: 1; }
+.proj-add:hover { color: var(--accent); background: var(--bg-chip); }
+.side-item.project:hover .proj-ddl { display: none; }
+
 /* ============ M9：composer 工具行（上传/权限三档/上下文/模型） ============ */
 
 /* 附件 chip 行：textarea 与工具行之间 */

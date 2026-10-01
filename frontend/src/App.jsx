@@ -224,6 +224,7 @@ export default function App() {
           onOpenPlugins={() => { setCustomizeOpen(true); setRail('none') }}
           onToggleCollapse={toggleSide}
           runningIds={runningIds}
+          onCreateChat={(p) => openChat(null, null, p)}
         />
       )}
       {sideCollapsed && (

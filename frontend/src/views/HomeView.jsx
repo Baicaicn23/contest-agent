@@ -1,9 +1,8 @@
 import ChatInput from '../components/ChatInput.jsx'
 
-// Codex 式首页（M9 精简版）：云图标 + 大问题 + 底部输入卡，仅此三样。
+// Codex 式首页（M9 精简版）：云图标 + 大问题 + 输入卡，**作为一组垂直居中**。
 // 截止临近 / 点子列表 / chips 行 / under-chips 全部移除（用户要求保持简洁）；
 // 模型/权限/上下文全部收进输入卡（见 ChatInput）。
-// 项目 chip 的归属功能随 chips 行移除——归属改在聊天里按需绑定（M5 的 /api 绑定保留）。
 export default function HomeView({ userName, project, onProjectChange, branch,
                                    accessFull, onToggleAccess, modelLabel,
                                    onSend, onCommand, onCommandResult,
@@ -11,7 +10,7 @@ export default function HomeView({ userName, project, onProjectChange, branch,
                                    models, activeModel, onModelChange }) {
   return (
     <div className={`home-root ${className}`}>
-      <div className="home-scroll">
+      <div className="home-center">
         <div className="home-hero">
           <div className="cloud-icon">
             <span className="cloud-glyph">{'>_'}</span>
@@ -20,9 +19,7 @@ export default function HomeView({ userName, project, onProjectChange, branch,
             你想让我们在 <span className="hero-project">{project ? project.name : '比赛情报'}</span> 中构建什么？
           </h1>
         </div>
-      </div>
-
-      <div className="composer-wrap center">
+        {/* ChatInput 自带 composer-wrap（含居中定位），这里不再包一层 */}
         <ChatInput
           centered
           placeholder="随心输入"

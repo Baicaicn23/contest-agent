@@ -22,7 +22,7 @@ function loadSet(key) {
 export default function Sidebar({ sessions, activeSessionId, onOpenSession,
                                   onNewChat, onOpenSettings, onOpenSearch,
                                   onOpenNotifications, onOpenPlugins,
-                                  onToggleCollapse, runningIds }) {
+                                  onToggleCollapse, runningIds, onCreateChat }) {
   const [projects, setProjects] = useState([])
   const [notifCount, setNotifCount] = useState(0)
   const [expanded, setExpanded] = useState(() => loadSet(EXPANDED_KEY))
@@ -177,6 +177,7 @@ export default function Sidebar({ sessions, activeSessionId, onOpenSession,
                            runningIds={runningIds}
                            onToggle={() => toggleProject(p.key)}
                            onOpenSession={onOpenSession}
+                           onCreateChat={onCreateChat}
                            deleteMode={deleteMode}
                            confirmKey={confirmKey}
                            onAskDelete={() => setConfirmKey(p.key)}
@@ -205,9 +206,10 @@ export default function Sidebar({ sessions, activeSessionId, onOpenSession,
 }
 
 // 项目节点：项目行（点击折叠/展开，状态在 localStorage）+ 会话子行。
-// deleteMode 时手动项目行尾出现删除钮 → 确认态（红字两钮，防误删）。
+// 行尾 ＋ = 在该项目下新建对话（首条消息自动归属，hover 显示）；
+// deleteMode 时手动项目行尾替换为删除钮 → 确认态（红字两钮，防误删）。
 function ProjectNode({ project, sessions, open, activeSessionId, runningIds,
-                       onToggle, onOpenSession,
+                       onToggle, onOpenSession, onCreateChat,
                        deleteMode, confirmKey, onAskDelete, onCancelDelete, onConfirmDelete }) {
   const isRunning = (s) => runningIds?.has(s.id) || s.status === 'running'
   return (
@@ -227,6 +229,12 @@ function ProjectNode({ project, sessions, open, activeSessionId, runningIds,
           <span className="side-ico"><FolderIcon open={open} /></span>
           <span className="title">{project.name}</span>
           {project.deadline && <span className="proj-ddl">{String(project.deadline).slice(5, 10)}</span>}
+          {!deleteMode && project.source !== 'loose' && (
+            <span className="proj-add" title={`在「${project.name}」中新建对话`}
+                  onClick={(e) => { e.stopPropagation(); onCreateChat?.(project) }}>
+              <PlusIcon size={13} />
+            </span>
+          )}
           {deleteMode && project.source === 'manual' && (
             <span className="proj-del" title="删除该项目"
                   onClick={(e) => { e.stopPropagation(); onAskDelete() }}>
