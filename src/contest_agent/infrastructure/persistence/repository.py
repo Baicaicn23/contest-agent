@@ -22,6 +22,7 @@ from ...domain.entities import (
     Competition,
     MemoryEntry,
     Notice,
+    ProjectInfo,
     SessionEvent,
     SessionSummary,
     UsageEntry,
@@ -31,6 +32,7 @@ from .models import (
     CompetitionModel,
     MemoryModel,
     NoticeModel,
+    ProjectModel,
     SessionEventModel,
     SessionModel,
     UsageRecordModel,
@@ -317,13 +319,53 @@ class SqliteMemoryRepository:
             return len(session.scalars(select(MemoryModel.id)).all())
 
 
-class SqliteSessionRepository:
-    """agent_sessions + session_events 两表的仓储，实现 SessionArchivePort（M2）。"""
+class SqliteProjectRepository:
+    """projects 表的仓储，实现 ProjectStorePort（M5 手动项目）。"""
 
     def __init__(self, database_url: str):
         self._engine = _build_engine(database_url)
         Base.metadata.create_all(self._engine)
         self._session_factory = sessionmaker(bind=self._engine)
+
+    def create(self, name: str) -> int:
+        with self._session_factory() as session, session.begin():
+            row = ProjectModel(name=name)
+            session.add(row)
+            session.flush()
+            return row.id
+
+    def list_manual(self) -> list[ProjectInfo]:
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(ProjectModel).order_by(ProjectModel.id.desc())
+            ).all()
+            return [
+                ProjectInfo(key=f"manual:{row.id}", name=row.name, source="manual")
+                for row in rows
+            ]
+
+
+class SqliteSessionRepository:
+    """agent_sessions + session_events 两表的仓储，实现 SessionArchivePort（M2）。
+
+    M5 起 sessions 支持 project_key（归属工作区项目）与按项目计数。
+    """
+
+    def __init__(self, database_url: str):
+        self._engine = _build_engine(database_url)
+        Base.metadata.create_all(self._engine)
+        self._migrate_add_project_key()
+        self._session_factory = sessionmaker(bind=self._engine)
+
+    def _migrate_add_project_key(self) -> None:
+        """给 M2 时代建的老库就地补 project_key 列（幂等，沿 usage_records 的先例）。"""
+        with self._engine.connect() as conn:
+            columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(agent_sessions)")}
+            if "project_key" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE agent_sessions ADD COLUMN project_key VARCHAR(128)"
+                )
+                conn.commit()
 
     def create_session(self, task_type: str, note: str = "") -> int:
         """开新会话，返回自增编号。"""
@@ -366,7 +408,17 @@ class SqliteSessionRepository:
             id=row.id, task_type=row.task_type, note=row.note or "",
             status=row.status, started_at=row.started_at, ended_at=row.ended_at,
             event_count=event_count, cost_yuan=cost, llm_calls=llm_calls,
+            project_key=row.project_key,
         )
+
+    def bind_session(self, session_id: int, project_key: str) -> bool:
+        """把会话归属到某个工作区项目。找不到会话返回 False。"""
+        with self._session_factory() as session, session.begin():
+            row = session.get(SessionModel, session_id)
+            if row is None:
+                return False
+            row.project_key = project_key
+        return True
 
     def list_sessions(self, limit: int = 20) -> list[SessionSummary]:
         """最近 limit 个会话概要（新任务在前），附事件数与台账花费。
