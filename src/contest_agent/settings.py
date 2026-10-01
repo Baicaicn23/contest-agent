@@ -117,13 +117,17 @@ class PushConfig(BaseModel):
 
 
 class PermissionConfig(BaseModel):
-    """工具权限门的配置（M3）。两个名单都是空 = 所有工具照旧自动放行。
+    """工具权限门的配置（M3；M9 起三档模式）。
 
+    - permission_mode：三档权限模式，前端 composer 可切——
+      "readonly"（只读：写类工具一律拒绝）/ "confirm"（变更前确认：沿用两个名单）/
+      "full"（完全访问：全放行，与 access_full=true 同步写）；
     - confirm_tools：交互模式（终端有人）下，执行前要 y/N 确认的工具名；
     - unattended_deny_tools：无人值守（cron / sai watch / HTTP 服务）时
       一律拒绝的工具名——拒绝理由会回给模型，让它换路走。
     """
 
+    permission_mode: str = "confirm"  # readonly / confirm / full
     confirm_tools: list[str] = Field(default_factory=list)
     unattended_deny_tools: list[str] = Field(default_factory=list)
 
@@ -370,3 +374,28 @@ def set_access_full(enabled: bool, config_path: Path | None = None) -> None:
         raise ValueError("config.yaml 里找不到 access_full 配置行")
     config_file.write_text("".join(lines), encoding="utf-8")
     load_settings.cache_clear()
+
+
+def set_permission_mode(mode: str, config_path: Path | None = None) -> None:
+    """写三档权限模式（M9 composer 权限选择的后端）。
+
+    readonly / confirm / full。full 档同步把 access_full 置 true（总闸与模式
+    保持同一真相）；非 full 置 false。行级替换保注释，两行各改各的。
+    """
+    if mode not in ("readonly", "confirm", "full"):
+        raise ValueError(f"未知权限模式：{mode!r}（可选 readonly / confirm / full）")
+    config_file = config_path or (PROJECT_ROOT / "config.yaml")
+    lines = config_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    mode_replaced = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith("permission_mode:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}permission_mode: {mode}\n"
+            mode_replaced = True
+            break
+    if not mode_replaced:
+        raise ValueError("config.yaml 里找不到 permission_mode 配置行")
+    config_file.write_text("".join(lines), encoding="utf-8")
+    load_settings.cache_clear()
+    # full 档与旧总闸字段保持同步（CLI 侧权限门读 access_full 的旧路径不断）
+    set_access_full(mode == "full", config_path)

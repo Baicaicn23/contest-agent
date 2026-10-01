@@ -42,6 +42,9 @@ push:
 # confirm_tools：终端有人时，执行前要 y/N 确认的工具名，例如 [save_material]；
 # unattended_deny_tools：无人值守（cron / sai watch / HTTP 服务）时一律拒绝的工具名。
 permissions:
+  # 三档权限模式（M9，前端 composer 可切）：
+  #   readonly = 只读（写类工具一律拒绝） / confirm = 变更前确认（默认） / full = 完全访问
+  permission_mode: confirm
   confirm_tools: []
   unattended_deny_tools: []
 

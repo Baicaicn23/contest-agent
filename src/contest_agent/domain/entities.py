@@ -137,6 +137,7 @@ class SessionSummary:
     cost_yuan: float | None = None  # 这次任务花了多少钱（按 session_id 汇总台账可得）
     llm_calls: int = 0            # 这次任务实际调了几次 LLM（0 = 纯粗筛/纯记忆命中，没花钱）
     project_key: str | None = None  # 归属的工作区项目键（M5；None = 未归属）
+    prompt_tokens: int | None = None  # 最后一轮输入 token（M9：composer 的"上下文 %"数据源）
 
 # 历史注记（v1.5）：P4 曾自研过 ToolCall / LlmReply 实体和手写 ReAct 循环，
 # v1.5 采纳 AgentScope 后由框架的消息模型接管（ADR-002）；

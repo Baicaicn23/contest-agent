@@ -82,6 +82,10 @@ export default function App() {
   const consumeInitial = (tabKey) => {
     setTabs((ts) => ts.map((t) => (t.key === tabKey ? { ...t, initialUser: null, initialAssistant: null } : t)))
   }
+  // 会话号回写 tab（侧栏高亮 + 上下文 % 的数据来源）
+  const handleSessionCreated = (sessionId) => {
+    setTabs((ts) => ts.map((t) => (t.key === activeTab && t.sessionId == null ? { ...t, sessionId } : t)))
+  }
 
   useEffect(() => {
     refreshConfig(); refreshSessions()
@@ -125,6 +129,19 @@ export default function App() {
       await api.setAccess(!accessFull)
       await refreshConfig()
     } catch { /* 静默：状态条会在下次刷新时对齐 */ }
+  }
+
+  const handlePermissionChange = async (mode) => {
+    try {
+      await api.setPermissionMode(mode)
+      await refreshConfig()
+    } catch { /* 静默：下次刷新对齐 */ }
+  }
+  const handleModelChange = async (name) => {
+    try {
+      await api.switchModel(name)
+      await refreshConfig()
+    } catch { /* 静默：下次刷新对齐 */ }
   }
 
   // 从首页发消息 = 开一个聊天标签（首条消息由 ChatView 自动发送）
@@ -179,6 +196,14 @@ export default function App() {
   const activeTabObj = tabs.find((t) => t.key === activeTab) || tabs[0]
   const showChat = rail === 'home' &&
     (activeTabObj?.key?.startsWith('chat') || activeTabObj?.key?.startsWith('replay'))
+  // 当前会话的上下文占用（最后轮输入 token ÷ 模型窗口 1M）：composer 的"上下文 %"
+  // 注意：必须在 showChat 之后计算（要用它判断当前是否在聊天里）
+  const contextPercent = (() => {
+    const sid = showChat ? activeTabObj?.sessionId : null
+    if (sid == null) return null
+    const s = sessions.find((x) => x.id === sid)
+    return s?.prompt_tokens != null ? s.prompt_tokens / 1_000_000 : null
+  })()
 
   const modelLabel = config?.models?.find((m) => m.name === config?.active_model)?.model || '…'
 
@@ -243,6 +268,13 @@ export default function App() {
                     onSessionsChanged={refreshSessions}
                     onRunningChange={handleRunning}
                     onInitialConsumed={() => consumeInitial(activeTab)}
+                    onSessionCreated={handleSessionCreated}
+                    contextPercent={contextPercent}
+                    permissionMode={config?.permission_mode ?? 'confirm'}
+                    onPermissionChange={handlePermissionChange}
+                    models={config?.models ?? []}
+                    activeModel={config?.active_model ?? ''}
+                    onModelChange={handleModelChange}
                     onCloseTab={() => setTabs((ts) => ts.filter((t) => t.key !== activeTab))} />
         )}
 
@@ -257,7 +289,12 @@ export default function App() {
                     modelLabel={modelLabel}
                     onSend={(text, proj) => openChat(text, null, proj)}
                     onCommand={(name) => runCommandFromHome(name)}
-                    onCommandResult={(userText, result) => openChat(userText, result)} />
+                    onCommandResult={(userText, result) => openChat(userText, result)}
+                    permissionMode={config?.permission_mode ?? 'confirm'}
+                    onPermissionChange={handlePermissionChange}
+                    models={config?.models ?? []}
+                    activeModel={config?.active_model ?? ''}
+                    onModelChange={handleModelChange} />
         )}
 
         {rail === 'stats' && (
@@ -284,6 +321,8 @@ export default function App() {
               theme={theme} setTheme={setTheme}
               fontSize={fontSize} setFontSize={setFontSize}
               accessFull={accessFull} onToggleAccess={toggleAccess}
+              permissionMode={config?.permission_mode ?? 'confirm'}
+              onPermissionChange={handlePermissionChange}
               onClose={() => setSettingsOpen(false)}
               onOpenPlugins={() => { setSettingsOpen(false); setCustomizeOpen(true) }}
             />
@@ -291,20 +330,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 底部状态条 */}
-        <div className="statusbar">
-          <button className="pill-btn" onClick={() => setSettingsOpen(true)}>
-            自动入库 <span>＋</span>
-          </button>
-          <div className="spacer" />
-          {config?.budget_per_task_yuan != null && (
-            <span>预算 {config.budget_per_task_yuan} 元/任务</span>
-          )}
-          <button className="model-pill" onClick={() => setSettingsOpen(true)}>
-            <span>{modelLabel}</span>
-            <span className={`dot ${config?.models?.find((m) => m.name === config?.active_model)?.has_key ? 'ok' : ''}`} />
-          </button>
-        </div>
+        {/* 底部状态条已随 M9 精简移除：模型/权限收进输入卡，设置入口在侧栏齿轮 */}
       </main>
 
       {toolPanel && <RightDock onClose={() => setToolPanel(false)} />}

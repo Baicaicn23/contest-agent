@@ -4,6 +4,35 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M9 首页精简与 Composer 集成
+
+### 新增
+
+- **Composer 工具行集成**（图四形态）：＋上传（POST /api/upload 落盘 output/uploads/，
+  文件名清洗/重名时间戳/20MB 上限，附件 chip 可移除，发送并入消息文本）、
+  **三档权限选择**（只读/变更前确认/完全访问，真实写 config permission_mode）、
+  **上下文 %**（当前会话最后轮输入 token ÷ 模型窗口 1M；sessions 接口新增 prompt_tokens
+  聚合，取 MAX 不取 SUM——每轮 prompt 含完整历史）、**模型切换下拉**（全部档案+缺密钥提示）
+- **三档权限模式**（config permissions.permission_mode，单一真相）：
+  只读=写类工具（扫官网/识别/存材料，WRITE_TOOL_NAMES）全局拒绝；
+  变更前确认=终端交互走名单确认、**网页聊天拦下并说明原因**（block_unattended_writes
+  仅聊天装配传 True，cron/watch 保持 M3 名单语义）；完全访问=全放行（同步旧 access_full）
+- **会话号回写 tab**：首页开的会话在侧栏高亮、上下文 % 生效；回写不触发历史重载
+
+### 变更
+
+- 首页精简：移除截止临近/给你几个点子/chips 行/under-chips/底部状态条，只留
+  云图标 + 大问题（居中）+ 底部输入卡；设置页权限卡从两个 Toggle 改三档 seg（同一真相）
+- **修复聊天工具箱未挂权限门**（build_chat_tools 装配缺 gate 参数）——三档之前
+  对聊天 agent 无效；修复 App 的 TDZ 白屏（contextPercent IIFE 引用未声明的 showChat）
+
+### 测试
+
+- 离线 176 项（新增 M9 五项：三档门语义含 cron 不受影响、行级写入回读、
+  permission-mode 端点往返、上传清洗与自清理）+ live 4 项全绿
+- 端到端三档实测：只读拒扫描给替代方案 → confirm 拦截说明"网页聊天无法弹确认" →
+  full 真扫官网返回 8 条真实通知；上下文 %/模型切换/emoji 零命中
+
 ## [Unreleased] — M8 侧栏完全复刻（图标化 / 项目树 / 运行中转圈）
 
 ### 新增

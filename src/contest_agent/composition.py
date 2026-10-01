@@ -135,10 +135,14 @@ def build_task_recorder(task_type: str, note: str = "") -> TaskRecorder:
     return TaskRecorder(build_session_repository(), task_type, note)
 
 
-def build_permission_gate():
-    """组装权限门（M3）：两个名单来自 config.yaml 的 permissions 段。
+def build_permission_gate(block_unattended_writes: bool = False):
+    """组装权限门（M3；M9 三档模式）。
 
-    interactive 不传 = 自动探测（stdin 连着终端才算有人）。
+    mode 来自 config.yaml permissions.permission_mode（readonly/confirm/full）；
+    写类名单在 PermissionGate.WRITE_TOOL_NAMES 里维护。
+    block_unattended_writes：仅网页聊天的装配传 True——确认档下聊天无法弹
+    确认，写类工具直接拦；cron/watch/CLI 保持 M3 名单语义（盯梢是正当的
+    无人值守写操作），不受影响。
     """
     from .application.harness.permission_gate import PermissionGate
 
@@ -147,7 +151,9 @@ def build_permission_gate():
     return PermissionGate(
         confirm_tools=perms.confirm_tools,
         unattended_deny_tools=perms.unattended_deny_tools,
-        full_access=perms.access_full,
+        full_access=settings.yaml_config.access_full,
+        permission_mode=perms.permission_mode,
+        block_unattended_writes=block_unattended_writes,
     )
 
 
@@ -286,6 +292,7 @@ def build_chat_service() -> ChatService:
             search=build_search(),
             identify_usecase=identify_usecase,
             sentinel=sentinel,
+            gate=build_permission_gate(block_unattended_writes=True),   # M9 修复：聊天工具此前完全没过权限门
         )
         return run_chat_agent_stream(
             profile=chat_profile,

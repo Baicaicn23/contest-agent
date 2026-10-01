@@ -410,7 +410,8 @@ class SqliteSessionRepository:
                 row.ended_at = datetime.now()
 
     def _to_summary(self, row: SessionModel, event_count: int,
-                    cost: float | None, llm_calls: int = 0) -> SessionSummary:
+                    cost: float | None, llm_calls: int = 0,
+                    prompt_tokens: int | None = None) -> SessionSummary:
         """ORM 行 -> 领域概要对象（转换规则集中一处）。
 
         cost 为 None 且 llm_calls 为 0 = 这次任务根本没调过 LLM（纯粗筛/纯记忆），
@@ -420,7 +421,7 @@ class SqliteSessionRepository:
             id=row.id, task_type=row.task_type, note=row.note or "",
             status=row.status, started_at=row.started_at, ended_at=row.ended_at,
             event_count=event_count, cost_yuan=cost, llm_calls=llm_calls,
-            project_key=row.project_key,
+            project_key=row.project_key, prompt_tokens=prompt_tokens,
         )
 
     def bind_session(self, session_id: int, project_key: str) -> bool:
@@ -487,9 +488,21 @@ class SqliteSessionRepository:
             ).all():
                 if sid is not None:
                     call_counts[sid] = int(calls)
+            # 累计输入 token（M9）：composer 的"上下文 %"数据源——
+            # 每轮 prompt_tokens 都含完整历史，最后一轮的值即当前上下文占用；
+            # 取 SUM 会重复计数，所以取 MAX（最接近"现在"的那一轮）
+            prompt_by_session: dict[int, int] = {}
+            for sid, total in session.execute(
+                select(UsageRecordModel.session_id, func.max(UsageRecordModel.prompt_tokens))
+                .where(UsageRecordModel.session_id.isnot(None))
+                .group_by(UsageRecordModel.session_id)
+            ).all():
+                if sid is not None and total is not None:
+                    prompt_by_session[sid] = int(total)
             return [
                 self._to_summary(row, event_counts.get(row.id, 0), costs.get(row.id),
-                                 call_counts.get(row.id, 0))
+                                 call_counts.get(row.id, 0),
+                                 prompt_by_session.get(row.id))
                 for row in rows
             ]
 

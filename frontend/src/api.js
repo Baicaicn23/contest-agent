@@ -68,6 +68,20 @@ export const api = {
       body: JSON.stringify({ enabled }) }),
   setAccess: (full) =>
     jfetch('/api/config/access', { method: 'POST', body: JSON.stringify({ full }) }),
+  setPermissionMode: (mode) =>
+    jfetch('/api/config/permission-mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+  upload: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch('/api/upload', { method: 'POST', body: form }).then(async (resp) => {
+      if (!resp.ok) {
+        let detail = `上传失败（${resp.status}）`
+        try { detail = (await resp.json()).detail || detail } catch { /* 保持默认 */ }
+        throw new Error(detail)
+      }
+      return resp.json()
+    })
+  },
 
   chatClose: (sessionId) =>
     jfetch('/api/chat/close', { method: 'POST', body: JSON.stringify({ session_id: sessionId }) }),

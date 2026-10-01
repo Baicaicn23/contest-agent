@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -46,6 +46,7 @@ from ..settings import (
     set_active_model,
     set_budget,
     set_feature,
+    set_permission_mode,
 )
 
 
@@ -110,6 +111,10 @@ class ProjectBindRequest(BaseModel):
 
 class AccessRequest(BaseModel):
     full: bool
+
+
+class PermissionModeRequest(BaseModel):
+    mode: str  # readonly / confirm / full
 
 
 class PluginToggleRequest(BaseModel):
@@ -266,6 +271,8 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
                     "event_count": s.event_count,
                     "cost_yuan": s.cost_yuan,
                     "llm_calls": s.llm_calls,
+                    "prompt_tokens": s.prompt_tokens,
+                    "project_key": s.project_key,
                 }
                 for s in items
             ],
@@ -398,6 +405,7 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
             },
             "context_trigger_ratio": current.yaml_config.context.trigger_ratio,
             "access_full": current.yaml_config.access_full,
+            "permission_mode": current.yaml_config.permissions.permission_mode,
             "features": current.yaml_config.features,
         }
 
@@ -695,6 +703,39 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
         开 = 权限门全放行；关 = config 名单生效。"""
         set_access_full(req.full)
         return {"access_full": req.full}
+
+    @app.post("/api/config/permission-mode")
+    def update_permission_mode(req: PermissionModeRequest) -> dict:
+        """三档权限模式（M9 composer 的权限选择）：
+        readonly（只读）/ confirm（变更前确认）/ full（完全访问）。
+        full 档同步旧总闸字段 access_full，CLI 侧行为一致。"""
+        try:
+            set_permission_mode(req.mode)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        return {"permission_mode": req.mode}
+
+    @app.post("/api/upload")
+    async def upload(file: UploadFile) -> dict:
+        """上传附件（M9 composer 的 ＋ 按钮）：落到 output/uploads/。
+
+        文件名防覆盖：重名自动加时间戳前缀；上限 20MB（composer 场景
+        足够，也防一条请求占满磁盘）。目录不存在自动创建。
+        """
+        import time
+
+        uploads = PROJECT_ROOT / "output" / "uploads"
+        uploads.mkdir(parents=True, exist_ok=True)
+        if file.size and file.size > 20 * 1024 * 1024:
+            raise HTTPException(413, "文件超过 20MB 上限")
+        safe_name = Path(file.filename or "unnamed").name   # 只取文件名部分，防路径穿越
+        target = uploads / safe_name
+        if target.exists():
+            target = uploads / f"{time.strftime('%H%M%S')}-{safe_name}"
+        content = await file.read()
+        target.write_bytes(content)
+        return {"name": target.relative_to(PROJECT_ROOT / "output").as_posix(),
+                "size": len(content)}
 
     # ---------- 前端静态托管：构建产物存在才挂载，`sai serve` 单端口全搞定 ----------
 

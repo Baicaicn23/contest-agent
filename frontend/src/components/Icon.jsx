@@ -109,3 +109,16 @@ export const XSmallIcon = ({ size = 12 }) => (
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 )
+
+export const ShieldIcon = ({ size = 13 }) => (
+  <svg {...base} width={size} height={size}>
+    <path d="M12 3.5l7 2.6v5.2c0 4.4-3 7.6-7 9.2-4-1.6-7-4.8-7-9.2V6.1z" />
+    <path d="M12 8v4" />
+  </svg>
+)
+
+export const FileIcon = ({ size = 12 }) => (
+  <svg {...base} width={size} height={size}>
+    <path d="M6.5 3.5h7l4 4v13h-11zM13.5 3.5v4h4" />
+  </svg>
+)

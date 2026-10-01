@@ -11,7 +11,10 @@ import MsgBubble, { ToolBlock } from '../components/MsgBubble.jsx'
 export default function ChatView({ sessionId, title, initialUser, initialAssistant,
                                    onSessionsChanged, bindProjectKey, projectName,
                                    onCloseTab, className = '', onRunningChange,
-                                   onInitialConsumed }) {
+                                   onInitialConsumed, onSessionCreated,
+                                   contextPercent = null,
+                                   permissionMode, onPermissionChange,
+                                   models, activeModel, onModelChange }) {
   const [messages, setMessages] = useState([])   // {role, content, time?, tool?}
   const [chatSessionId, setChatSessionId] = useState(sessionId)  // null = 首发后由服务端分配
   const [taskType, setTaskType] = useState(sessionId ? null : 'chat')
@@ -22,10 +25,13 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
   const sentInitial = useRef(false)
 
   const isReplay = sessionId != null && taskType !== 'chat'
+  // 初始会话号记账：首页开的会话在首条回复后会把 sessionId 回写进 tab，
+  // 那是为侧栏高亮/上下文 %服务——不应触发"重新加载历史"（会把流式消息覆盖掉）。
+  const initialSessionRef = useRef(sessionId)
 
-  // 回放/续聊：加载历史会话的事件
+  // 回放/续聊：加载历史会话的事件（仅初始就带会话号的 tab）
   useEffect(() => {
-    if (sessionId == null) return
+    if (initialSessionRef.current == null) return
     api.sessionDetail(sessionId).then(({ session, events }) => {
       setTaskType(session.task_type)
       setMessages(eventsToMessages(events))
@@ -76,6 +82,8 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
             setChatSessionId(ev.session_id)
             // 侧栏树实时转圈：会话落地即标运行中，结束时回调解除
             onRunningChange?.(ev.session_id, true)
+            // 会话号回写 tab：侧栏高亮与 composer 的"上下文 %"都靠它
+            onSessionCreated?.(ev.session_id)
             // 立刻刷新一次列表：新会话要马上出现在侧栏树里（带着 running 状态转圈），
             // 否则要等任务结束才可见
             onSessionsChanged?.()
@@ -175,6 +183,12 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
         <ChatInput
           placeholder={busy ? '对方正在输入…' : '输入消息，/ 唤起命令'}
           busy={busy}
+          contextPercent={contextPercent}
+          permissionMode={permissionMode}
+          onPermissionChange={onPermissionChange}
+          models={models}
+          activeModel={activeModel}
+          onModelChange={onModelChange}
           onSend={send}
           onCommandResult={(cmd, result, original) => {
             appendMessage({ role: 'user', content: original || cmd.cmd, time: now() })

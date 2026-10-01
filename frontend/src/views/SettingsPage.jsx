@@ -30,7 +30,8 @@ const NAV = [
 
 export default function SettingsPage({ config, onConfigChange, theme, setTheme,
                                         fontSize, setFontSize, accessFull,
-                                        onToggleAccess, onClose, onOpenPlugins }) {
+                                        onToggleAccess, onClose, onOpenPlugins,
+                                        permissionMode, onPermissionChange }) {
   const [section, setSection] = useState('general')
   const [budget, setBudgetLocal] = useState('')
   const [hint, setHint] = useState('')
@@ -80,25 +81,21 @@ export default function SettingsPage({ config, onConfigChange, theme, setTheme,
             <>
               <h1 className="sec-title">常规</h1>
               <div className="card-block">
-                <div className="card-title">权限</div>
+                <div className="card-title">权限模式</div>
                 <div className="settings-row">
                   <div>
-                    <div className="label">默认权限</div>
-                    <div className="desc">默认情况下，助手可以读取和编辑其工作空间中的文件。需要时，它可以请求额外访问权限。</div>
+                    <div className="label">三档权限</div>
+                    <div className="desc">
+                      只读：写类工具（扫官网/识别/存材料）一律拒绝；变更前确认：写类工具执行前需要你确认
+                      （网页聊天无人值守，等价只读）；完全访问：全部工具自动放行。与输入卡上的选择同一真相。
+                      {accessFull && <span style={{ color: 'var(--accent)' }}> 当前完全访问已开启。</span>}
+                    </div>
                   </div>
-                  <div className="control">
-                    <Toggle on={!config.access_full}
-                            onChange={(on) => onToggleAccess(!on)} />
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div>
-                    <div className="label">完全访问权限</div>
-                    <div className="desc">开启后，它无需你的批准即可执行全部工具，并访问网络。这会显著增加费用与误操作的风险。</div>
-                  </div>
-                  <div className="control">
-                    <Toggle on={config.access_full}
-                            onChange={(on) => onToggleAccess(on)} />
+                  <div className="control seg-group">
+                    {[['readonly', '只读'], ['confirm', '变更前确认'], ['full', '完全访问']].map(([mode, label]) => (
+                      <button key={mode} className={permissionMode === mode ? 'active' : ''}
+                              onClick={() => onPermissionChange(mode)}>{label}</button>
+                    ))}
                   </div>
                 </div>
               </div>

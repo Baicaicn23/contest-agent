@@ -29,9 +29,24 @@ import sys
 from collections.abc import Callable
 from functools import wraps
 
+# 写类工具名单（M9 权限三档的"只读"档依据）：这些工具会改动系统状态
+# （写库 / 写文件）。只读模式下它们一律拒绝；读类工具（查卡片/读通知/
+# 搜索/查截止）不受限。新增写类工具时把名字加进来。
+WRITE_TOOL_NAMES = frozenset({
+    "scan_latest_notices",      # 爬官网并写入通知库
+    "identify_latest_notices",  # 识别并写入比赛卡库（还花 LLM 钱）
+    "save_material",            # 写文件到 output/
+})
+
 
 class PermissionGate:
-    """配置驱动的工具权限门。所有方法都容忍"没配置"（空名单 = 全放行）。"""
+    """配置驱动的工具权限门。所有方法都容忍"没配置"（空名单 = 全放行）。
+
+    M9 三档权限模式（config.yaml permissions.permission_mode，前端可切）：
+    - "readonly"：写类工具（WRITE_TOOL_NAMES）一律拒绝——agent 只能看不能动；
+    - "confirm"：默认。沿用两个名单机制（交互确认 / 无人值守拒绝）；
+    - "full"：全放行（等价旧 access_full=true 总闸，两者保持同步写）。
+    """
 
     def __init__(
         self,
@@ -39,11 +54,18 @@ class PermissionGate:
         unattended_deny_tools: list[str] | tuple[str, ...] = (),
         interactive: bool | None = None,
         full_access: bool = False,
+        permission_mode: str = "confirm",
+        block_unattended_writes: bool = False,
     ):
         self._confirm = set(confirm_tools)
         self._deny_unattended = set(unattended_deny_tools)
         # M5 完全访问总闸：True = 名单全部忽略、一切放行（前端"⚠ 完全访问"开关）
-        self._full_access = full_access
+        self._full_access = full_access or permission_mode == "full"
+        self._mode = permission_mode
+        # M9：网页聊天是"无人值守 + 无法弹确认"的场景——确认档下写类工具拦下。
+        # 只有 HTTP 聊天的装配传 True；cron/watch/CLI 保持 M3 语义（盯梢本就是
+        # 无人值守的正当写操作，由 unattended_deny_tools 名单控制，不受影响）。
+        self._block_unattended_writes = block_unattended_writes
         if interactive is None:
             # 自动探测：stdin 连着终端 = 有人；cron/管道/服务 = 无人值守。
             # 测试可以直接传 True/False 跳过探测
@@ -56,11 +78,35 @@ class PermissionGate:
 
         套在外壳链的"截断壳之外、记录壳之内"：拒绝的结果也会被记进
         会话轨迹（回放时看得到模型被拦了），但不会真的执行到原函数。
-        总闸开（full_access）时直接放行一切。
+        完全访问档直接放行一切；只读档先拦写类工具。
         """
         if self._full_access:
             return func
         name = getattr(func, "__name__", "tool")
+
+        # 规则零（M9 三档）：
+        # 只读档：全局生效——写类工具一律拒绝（cron 也会被拦，拒绝理由会引导处理）；
+        # 确认档：仅网页聊天（block_unattended_writes=True）拦下写类工具，
+        # cron/watch/CLI 保持 M3 名单语义不受影响。
+        if name in WRITE_TOOL_NAMES and not self._full_access:
+            if self._mode == "readonly":
+                @wraps(func)
+                def readonly_denied(*args, **kwargs):
+                    return (
+                        f"被权限门拦截：当前权限模式为「只读」，{name} 会改动系统状态，"
+                        f"已被禁止。你可以继续使用查询类工具回答问题，"
+                        f"或告诉用户切换到「变更前确认/完全访问」后再执行。"
+                    )
+                return readonly_denied
+            if self._mode == "confirm" and self._block_unattended_writes:
+                @wraps(func)
+                def confirm_unattended_denied(*args, **kwargs):
+                    return (
+                        f"被权限门拦截：当前权限模式为「变更前确认」，而本次执行处于"
+                        f"无人值守场景（网页聊天），无法弹出确认。请在终端用 sai 命令"
+                        f"执行（可以交互式确认），或让用户把权限切换为「完全访问」。"
+                    )
+                return confirm_unattended_denied
 
         # 规则一：无人值守 + 明确禁用名单 → 一律拒绝
         if not self._interactive and name in self._deny_unattended:

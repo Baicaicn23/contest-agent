@@ -1491,3 +1491,80 @@ input, textarea, select {
   box-shadow: var(--shadow-pop);
   border: 1px solid var(--border-soft);
 }
+
+/* ============ M9：composer 工具行（上传/权限三档/上下文/模型） ============ */
+
+/* 附件 chip 行：textarea 与工具行之间 */
+.attach-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-chip);
+  border-radius: 999px;
+  padding: 3px 8px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-chip.failed { color: #c0503a; background: #fbeaea; }
+:root[data-theme='dark'] .attach-chip.failed { background: #3c2424; }
+.attach-x {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+  border-radius: 50%;
+  padding: 1px;
+}
+.attach-x:hover { color: var(--text); background: var(--bg-chip-hover); }
+
+/* 工具行里的下拉锚点 */
+.composer-pop-wrap { position: relative; }
+
+/* 权限三档 pill：readonly 灰 / confirm 橙 / full 橙加粗（视觉提醒高风险） */
+.perm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  transition: background var(--dur-micro) var(--ease-out),
+              color var(--dur-micro) var(--ease-out),
+              transform var(--dur-micro) var(--ease-out);
+}
+.perm-pill:hover { background: var(--bg-chip); transform: translateY(-1px); }
+.perm-pill:active { transform: scale(0.97); }
+.perm-pill.mode-full { color: var(--accent); }
+.perm-pill.mode-readonly { color: var(--text); }
+
+/* composer 上的弹出面板（权限/模型共用）：向上展开 */
+.composer-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 300px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  z-index: 35;
+  animation: pop-in var(--dur-std) var(--ease-out) both;
+}
+.composer-pop.model-pop { left: auto; right: 0; min-width: 260px; }
+.composer-pop .cmd-item { align-items: center; }
+.perm-pop-label { font-weight: 500; flex-shrink: 0; }
+.composer-pop .desc { flex: 1; }
+
+/* 上下文占用小字 */
+.ctx-pill {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 0 4px;
+  white-space: nowrap;
+}
