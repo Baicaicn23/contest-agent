@@ -143,6 +143,11 @@ class YamlConfig(BaseModel):
     context: ContextSettings = ContextSettings()  # agent 循环的上下文压缩阈值
     push: PushConfig = PushConfig()        # 推送通道（M3 定时推送用，默认全关）
     permissions: PermissionConfig = PermissionConfig()  # 工具权限门（M3，默认全放行）
+    # —— M5 插件开关：能力插件的安装状态（前端插件市场写这里）。
+    # 未列出的能力视为开启；features: eval=false 表示评测插件"未安装"
+    features: dict[str, bool] = Field(default_factory=dict)
+    # 完全访问总闸（M5）：True = 权限门全放行（名单忽略）；False = 名单生效
+    access_full: bool = False
 
 
 class Settings(BaseModel):
@@ -307,5 +312,61 @@ def set_budget(yuan: float | None, config_path: Path | None = None) -> None:
     if not replaced:
         raise ValueError("config.yaml 里找不到 budget_per_task_yuan 配置行")
 
+    config_file.write_text("".join(lines), encoding="utf-8")
+    load_settings.cache_clear()
+
+
+def set_feature(key: str, enabled: bool, config_path: Path | None = None) -> None:
+    """写 config.yaml 的 features 插件开关（M5 插件市场的后端）。
+
+    行级定位 features: 段下的 `  key:` 行改值；段里没有该键就插一行。
+    features 是 M5 新增段、无历史注释负担，插入安全。
+    """
+    config_file = config_path or (PROJECT_ROOT / "config.yaml")
+    lines = config_file.read_text(encoding="utf-8").splitlines(keepends=True)
+
+    feature_start = None
+    for index, line in enumerate(lines):
+        if line.rstrip("\n") == "features:":
+            feature_start = index + 1
+            break
+    if feature_start is None:
+        raise ValueError("config.yaml 里找不到 features: 配置段")
+
+    target = f"  {key}:"
+    value = "true" if enabled else "false"
+    for index in range(feature_start, len(lines)):
+        line = lines[index]
+        if line.strip() and not line.startswith("  "):
+            break  # 走出了 features 段
+        if line.strip().startswith(f"{key}:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}{key}: {value}\n"
+            config_file.write_text("".join(lines), encoding="utf-8")
+            load_settings.cache_clear()
+            return
+
+    # 段内没有该键：插到段首
+    lines.insert(feature_start, f"{target} {value}\n")
+    config_file.write_text("".join(lines), encoding="utf-8")
+    load_settings.cache_clear()
+
+
+def set_access_full(enabled: bool, config_path: Path | None = None) -> None:
+    """写完全访问总闸（M5 前端的"⚠ 完全访问"开关后端）。
+
+    True = 权限门全放行（名单忽略）；False = 名单生效。行级替换保注释。
+    """
+    config_file = config_path or (PROJECT_ROOT / "config.yaml")
+    lines = config_file.read_text(encoding="utf-8").splitlines(keepends=True)
+    replaced = False
+    for index, line in enumerate(lines):
+        if line.strip().startswith("access_full:"):
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}access_full: {'true' if enabled else 'false'}\n"
+            replaced = True
+            break
+    if not replaced:
+        raise ValueError("config.yaml 里找不到 access_full 配置行")
     config_file.write_text("".join(lines), encoding="utf-8")
     load_settings.cache_clear()

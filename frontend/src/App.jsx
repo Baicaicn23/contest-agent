@@ -1,30 +1,42 @@
 import { useEffect, useState } from 'react'
-import { api } from './api.js'
+import { api, COMMANDS } from './api.js'
+import IconRail from './components/IconRail.jsx'
 import Sidebar from './components/Sidebar.jsx'
-import CodeHome from './views/CodeHome.jsx'
-import CoworkHome from './views/CoworkHome.jsx'
+import TabBar, { useTabs } from './components/TabBar.jsx'
+import SearchOverlay from './components/SearchOverlay.jsx'
+import NotificationsPop from './components/NotificationsPop.jsx'
+import ToolPanel from './components/ToolPanel.jsx'
+import SettingsPage from './views/SettingsPage.jsx'
+import CustomizePage from './views/CustomizePage.jsx'
+import HomeView from './views/HomeView.jsx'
 import ChatView from './views/ChatView.jsx'
-import SettingsModal from './components/SettingsModal.jsx'
+import { UserBox } from './components/UserMenu.jsx'
+import UsageCard from './components/UsageCard.jsx'
 
-// 应用外壳：管"全局状态"，把界面拆给三个视图组件。
-// 全局状态有四类：模式（情报站/工作台）、当前视图（首页/某个会话）、
-// 配置（模型档案等，Settings 面板可改）、主题与字号（localStorage 持久化）。
-// 注意：故意不引入 react-router——"视图切换"用一个 state 就够了，
-// 浏览器路由对这个单页工具是多余的依赖。
-
+// 应用外壳（M5 Codex 化）：图标栏 → 侧栏（项目树/最近/用户）→ 标签页 + 主区。
+// 视图 = 标签页里的聊天 / 首页 / 统计 / 截止日程 / 设置全页 / Customize。
+// 全局状态：模式与主题（localStorage 持久化）、配置、会话列表、多标签。
 const THEME_KEY = 'ca-theme'
 const FS_KEY = 'ca-fontsize'
 
 export default function App() {
-  const [mode, setMode] = useState('code')
-  const [view, setView] = useState({ type: 'home' })
+  const [rail, setRail] = useState('home')            // 图标栏定位：home/stats/deadlines
+  const [tabs, setTabsActions] = useState([{ key: 'home', title: '首页' }])
+  const [activeTab, setActiveTab] = useState('home')
   const [config, setConfig] = useState(null)
   const [sessions, setSessions] = useState([])
+  const [projects, setProjects] = useState([])
+  const [project, setProject] = useState(null)        // composer 选中的项目
+  const [branch, setBranch] = useState('main')
+  const [accessFull, setAccessFull] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [toolPanel, setToolPanel] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'light')
   const [fontSize, setFontSize] = useState(() => localStorage.getItem(FS_KEY) || 'medium')
 
-  // 主题/字号写进 <html> 的 data 属性 → tokens.css 的变量整体切换
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     localStorage.setItem(THEME_KEY, theme)
@@ -34,61 +46,165 @@ export default function App() {
     localStorage.setItem(FS_KEY, fontSize)
   }, [fontSize])
 
-  const refreshConfig = () => api.config().then(setConfig).catch(() => {})
+  const refreshConfig = () => api.config().then((c) => {
+    setConfig(c); setAccessFull(!!c.access_full)
+  }).catch(() => {})
   const refreshSessions = () => api.sessions(30).then((r) => setSessions(r.sessions)).catch(() => {})
 
   useEffect(() => {
-    refreshConfig()
-    refreshSessions()
+    refreshConfig(); refreshSessions()
+    api.projects().then((r) => setProjects(r.projects)).catch(() => {})
+    api.gitBranch().then((r) => setBranch(r.branch)).catch(() => {})
   }, [])
 
-  const openSession = async (session) => {
-    setView({ type: 'chat', sessionId: session.id, title: session.note || `会话 #${session.id}` })
+  const toggleAccess = async () => {
+    try {
+      await api.setAccess(!accessFull)
+      await refreshConfig()
+    } catch { /* 静默：状态条会在下次刷新时对齐 */ }
   }
-  const newChat = () => setView({ type: 'chat', sessionId: null, title: '新会话', nonce: Date.now() })
-  const goHome = () => setView({ type: 'home' })
 
-  const activeModel = config?.models?.find((m) => m.name === config?.active_model)
-  const modelLabel = activeModel ? activeModel.model : '…'
+  // 从首页发消息 = 开一个聊天标签（首条消息由 ChatView 自动发送）
+  const openChat = (text, assistantText, bindProject) => {
+    const tab = {
+      key: `chat-${Date.now()}`, title: text ? text.slice(0, 12) : '新聊天',
+      sessionId: null, initialUser: text || null,
+      initialAssistant: assistantText || null,
+      bindProjectKey: bindProject?.key || null,
+    }
+    setTabs((ts) => [...ts, tab])
+    setActiveTab(tab.key)
+    setRail('home')
+  }
+
+  const openSessionReplay = async (session) => {
+    // 侧栏两种入口：数字 id（最近列表）= 回放；项目 key = 只读占位
+    if (typeof session.id !== 'number') return
+    setRail('home')
+    setTabs((ts) => {
+      const exist = ts.find((t) => t.sessionId === session.id)
+      if (exist) { setActiveTab(exist.key); return ts }
+      const tab = { key: `replay-${session.id}-${Date.now()}`, title: session.note || `会话 #${session.id}`,
+                    sessionId: session.id }
+      setActiveTab(tab.key)
+      return [...ts, tab]
+    })
+  }
+
+  const runCommandFromHome = async (cmdName) => {
+    const cmd = COMMANDS.find((c) => c.cmd === `/${cmdName}`) ||
+                COMMANDS.find((c) => c.cmd.includes(cmdName))
+    if (!cmd) return
+    try {
+      const result = await cmd.run()
+      openChat(cmd.cmd, result)
+    } catch (e) {
+      openChat(cmd.cmd, `⚠️ ${e.message}`)
+    }
+  }
+
+  // 主区：激活 tab 是聊天 → ChatView；否则按 rail 显示面板
+  const activeTabObj = tabs.find((t) => t.key === activeTab) || tabs[0]
+  const showChat = rail === 'home' && activeTabObj?.key?.startsWith('chat')
+
+  const modelLabel = config?.models?.find((m) => m.name === config?.active_model)?.model || '…'
 
   return (
-    <div className="app"
-         onClick={() => document.body.dispatchEvent(new Event('click-outside'))}>
+    <div className="app codex-app" onClick={() => setNotifOpen(false)}>
+      <IconRail active={rail} onNavigate={setRail} onOpenSettings={() => setSettingsOpen(true)} />
+
       <Sidebar
-        mode={mode}
-        onModeChange={(m) => { setMode(m); goHome() }}
         sessions={sessions}
-        activeSessionId={view.type === 'chat' ? view.sessionId : null}
-        onOpenSession={openSession}
-        onNewChat={() => { setMode('code'); newChat() }}
+        activeSessionId={showChat ? activeTabObj?.sessionId : null}
+        onOpenSession={openSessionReplay}
+        onNewChat={() => { setRail('home')
+          const tab = { key: `chat-${Date.now()}`, title: '新聊天', sessionId: null }
+          setTabs((ts) => [...ts, tab]); setActiveTab(tab.key) }}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenPlugins={() => { setCustomizeOpen(true); setRail('none') }}
       />
 
       <main className="main">
-        {view.type === 'chat' ? (
-          <ChatView key={view.nonce ?? view.sessionId}
-                    sessionId={view.sessionId}
-                    title={view.title}
-                    initialUser={view.initialUser}
-                    initialAssistant={view.initialAssistant}
-                    onSessionsChanged={refreshSessions} />
-        ) : mode === 'code' ? (
-          <CodeHome userName="momo"
-                    onOpenChat={(firstText, assistantText) => {
-                      setMode('code')
-                      setView({ type: 'chat', sessionId: null, title: '新会话', nonce: Date.now(),
-                                initialUser: firstText, initialAssistant: assistantText })
-                    }} />
-        ) : (
-          <CoworkHome userName="momo"
-                      onOpenChat={(userText, assistantText) => {
-                        setMode('code')
-                        setView({ type: 'chat', sessionId: null, title: '新会话', nonce: Date.now(),
-                                  initialUser: userText, initialAssistant: assistantText })
-                      }} />
+        {/* 标签页条：聊天标签 + 右侧工具面板开关 */}
+        <div className="main-topbar">
+          <TabBar
+            tabs={tabs.filter((t) => t.key.startsWith('chat'))}
+            activeKey={showChat ? activeTab : ''}
+            onSelect={(key) => { setRail('home'); setActiveTab(key) }}
+            onClose={(key) => setTabs((ts) => {
+              const rest = ts.filter((t) => t.key !== key)
+              if (key === activeTab && rest.length) setActiveTab(rest[rest.length - 1].key)
+              if (!rest.length) {
+                const fresh = { key: `chat-${Date.now()}`, title: '新聊天', sessionId: null }
+                setTabs([fresh]); setActiveTab(fresh.key)
+              }
+              return rest
+            })}
+            onNew={() => openChat(null)}
+          />
+          <div className="spacer" />
+          <button className="icon-btn" title="工具面板（output 文件）"
+                  onClick={() => setToolPanel(!toolPanel)}>▤</button>
+        </div>
+
+        {rail === 'home' && showChat && (
+          <ChatView key={activeTab}
+                    sessionId={activeTabObj.sessionId}
+                    title={activeTabObj.title}
+                    initialUser={activeTabObj.initialUser}
+                    initialAssistant={activeTabObj.initialAssistant}
+                    bindProjectKey={activeTabObj.bindProjectKey}
+                    projectName={project?.name}
+                    onSessionsChanged={refreshSessions}
+                    onCloseTab={() => setTabs((ts) => ts.filter((t) => t.key !== activeTab))} />
         )}
 
-        {/* 底部状态条：左侧入库策略，右侧当前模型（点击进设置切换） */}
+        {rail === 'home' && !showChat && (
+          <HomeView userName="momo"
+                    project={project}
+                    onProjectChange={setProject}
+                    branch={branch}
+                    accessFull={accessFull}
+                    onToggleAccess={toggleAccess}
+                    modelLabel={modelLabel}
+                    onSend={(text, proj) => openChat(text, null, proj)}
+                    onCommand={(name) => runCommandFromHome(name)}
+                    onCommandResult={(userText, result) => openChat(userText, result)} />
+        )}
+
+        {rail === 'stats' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+            <h1 style={{ fontSize: 22, margin: '0 0 16px' }}>统计</h1>
+            <UsageCard />
+          </div>
+        )}
+
+        {rail === 'deadlines' && <DeadlinesView />}
+
+        {customizeOpen && (
+          <div className="fullpage-mask">
+            <CustomizePage onOpenSettings={() => setSettingsOpen(true)} />
+            <button className="icon-btn fullpage-close" onClick={() => setCustomizeOpen(false)}>✕</button>
+          </div>
+        )}
+
+        {settingsOpen && (
+          <div className="fullpage-mask">
+            <SettingsPage
+              config={config}
+              onConfigChange={refreshConfig}
+              theme={theme} setTheme={setTheme}
+              fontSize={fontSize} setFontSize={setFontSize}
+              accessFull={accessFull} onToggleAccess={toggleAccess}
+              onClose={() => setSettingsOpen(false)}
+              onOpenPlugins={() => { setSettingsOpen(false); setCustomizeOpen(true) }}
+            />
+            <button className="icon-btn fullpage-close" onClick={() => setSettingsOpen(false)}>✕</button>
+          </div>
+        )}
+
+        {/* 底部状态条 */}
         <div className="statusbar">
           <button className="pill-btn" onClick={() => setSettingsOpen(true)}>
             自动入库 <span>＋</span>
@@ -97,23 +213,48 @@ export default function App() {
           {config?.budget_per_task_yuan != null && (
             <span>预算 {config.budget_per_task_yuan} 元/任务</span>
           )}
-          <button className="model-pill" onClick={() => setSettingsOpen(true)}
-                  title="点击切换模型档案">
+          <button className="model-pill" onClick={() => setSettingsOpen(true)}>
             <span>{modelLabel}</span>
-            <span className={`dot ${activeModel?.has_key ? 'ok' : ''}`} />
+            <span className={`dot ${config?.models?.find((m) => m.name === config?.active_model)?.has_key ? 'ok' : ''}`} />
           </button>
         </div>
       </main>
 
-      {settingsOpen && (
-        <SettingsModal
-          config={config}
-          onConfigChange={refreshConfig}
-          theme={theme} setTheme={setTheme}
-          fontSize={fontSize} setFontSize={setFontSize}
-          onClose={() => setSettingsOpen(false)}
-        />
+      {toolPanel && <ToolPanel onClose={() => setToolPanel(false)} />}
+
+      {searchOpen && (
+        <SearchOverlay onClose={() => setSearchOpen(false)} onOpenSession={openSessionReplay} />
       )}
+
+      {settingsOpen ? null : null}
+    </div>
+  )
+}
+
+// 截止日程视图（图标栏 ⏰）：只读列表。
+function DeadlinesView() {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    api.deadlines().then(setData).catch((e) => setData({ deadlines: [], error: e.message }))
+  }, [])
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '24px 32px' }}>
+      <h1 style={{ fontSize: 22, margin: '0 0 16px' }}>截止日程</h1>
+      {data?.error && <div className="models-empty">⚠️ {data.error}</div>}
+      {data && !data.error && data.count === 0 && (
+        <div className="models-empty">未来 30 天没有临近截止的比赛。</div>
+      )}
+      {data?.deadlines?.map((d) => (
+        <a key={d.url} className="idea-row" href={d.url} target="_blank" rel="noreferrer">
+          <span className="idea-icon">
+            {d.remaining === 0 ? '🔴' : d.remaining === 1 ? '🟠' : d.remaining <= 3 ? '🟡' : '🔵'}
+          </span>
+          <span style={{ flex: 1 }}>
+            {d.name} <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>{d.label}</span>
+          </span>
+          <span style={{ color: 'var(--text-faint)', fontSize: 12.5 }}>{d.deadline}</span>
+        </a>
+      ))}
     </div>
   )
 }

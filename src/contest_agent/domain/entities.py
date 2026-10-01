@@ -59,6 +59,22 @@ class Competition:
 
 
 @dataclass
+class ProjectInfo:
+    """一个工作区项目（M5）：把聊天/材料按"比赛"组织起来的容器。
+
+    两类来源：
+    - auto：识别出的比赛卡片自动派生（key = "card:<url_hash>"）；
+    - manual：用户手动新建（key = "manual:<id>"，存 projects 表）。
+    """
+
+    key: str                      # 项目唯一键（card:xxx / manual:x），会话归属用它
+    name: str
+    source: str = "auto"          # auto / manual
+    deadline: datetime | None = None   # 比赛类项目带上截止日期（侧栏可直接标紧迫度）
+    sessions: int = 0             # 归属到这个项目的会话数
+
+
+@dataclass
 class UsageEntry:
     """一次 LLM 调用的"账单流水"（M1 成本台账）。
 
@@ -120,6 +136,7 @@ class SessionSummary:
     event_count: int = 0          # 事件条数（列表页一眼看出这个任务干了多少步）
     cost_yuan: float | None = None  # 这次任务花了多少钱（按 session_id 汇总台账可得）
     llm_calls: int = 0            # 这次任务实际调了几次 LLM（0 = 纯粗筛/纯记忆命中，没花钱）
+    project_key: str | None = None  # 归属的工作区项目键（M5；None = 未归属）
 
 # 历史注记（v1.5）：P4 曾自研过 ToolCall / LlmReply 实体和手写 ReAct 循环，
 # v1.5 采纳 AgentScope 后由框架的消息模型接管（ADR-002）；

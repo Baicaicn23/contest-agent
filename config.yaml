@@ -37,13 +37,25 @@ push:
   #   user: your@qq.com
   #   to_addrs: [your@qq.com]
 
-# —— M3 权限门 ——
+# —— M5 权限门 ——
 # 两个名单都是空 = 所有工具照旧自动放行（v1 以来的默认）。
 # confirm_tools：终端有人时，执行前要 y/N 确认的工具名，例如 [save_material]；
 # unattended_deny_tools：无人值守（cron / sai watch / HTTP 服务）时一律拒绝的工具名。
 permissions:
   confirm_tools: []
   unattended_deny_tools: []
+
+# 完全访问总闸（M5 前端"⚠ 完全访问"开关写这里）：
+# true = 权限门全放行（上面名单忽略）；false = 名单生效
+access_full: false
+
+# —— M5 插件开关（前端插件市场写这里）——
+# false 的能力对应接口返回 503（前端显示"未安装"）
+features:
+  deadlines: true     # 截止日期守望
+  eval: false
+  watch: true         # 定时盯梢
+  pptx: true          # 生成材料导出 .pptx
 
 # 联网搜索（P5 学习路径用）：国内可直连、无需密钥；主引擎被风控时自动切回退引擎
 search:

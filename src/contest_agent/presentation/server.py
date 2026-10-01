@@ -37,7 +37,15 @@ from ..application.usecases.identify_competitions import IdentifyCompetitions
 from ..application.usecases.plan_study_path import PlanStudyPath
 from ..application.usecases.scan_site import ScanSite
 from ..application.usecases.usage_report import UsageReport, fun_fact
-from ..settings import PROJECT_ROOT, Settings, load_settings, set_active_model, set_budget
+from ..settings import (
+    PROJECT_ROOT,
+    Settings,
+    load_settings,
+    set_access_full,
+    set_active_model,
+    set_budget,
+    set_feature,
+)
 
 
 @dataclass
@@ -56,6 +64,7 @@ class Usecases:
     usage_report: UsageReport | None = None
     chat: ChatService | None = None
     deadline: "object | None" = None  # DeadlineSentinel（鸭子类型，避免跨层 import）
+    workspace: "object | None" = None  # WorkspaceService（鸭子类型）
     generate_material: GenerateMaterial | None = None
     study_path: PlanStudyPath | None = None
 
@@ -87,6 +96,23 @@ class SwitchModelRequest(BaseModel):
 
 class BudgetRequest(BaseModel):
     yuan: float | None = None  # null = 不限预算
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+
+
+class ProjectBindRequest(BaseModel):
+    session_id: int
+    project_key: str
+
+
+class AccessRequest(BaseModel):
+    full: bool
+
+
+class PluginToggleRequest(BaseModel):
+    enabled: bool
 
 
 class ChatRequest(BaseModel):
@@ -366,6 +392,8 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
                 "smtp": current.yaml_config.push.smtp is not None,
             },
             "context_trigger_ratio": current.yaml_config.context.trigger_ratio,
+            "access_full": current.yaml_config.access_full,
+            "features": current.yaml_config.features,
         }
 
     @app.post("/api/config/model")
@@ -467,6 +495,9 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
         """临近截止的比赛列表（M4 截止守望的只读视图，30 天窗口）。"""
         if usecases is None or usecases.deadline is None:
             raise HTTPException(503, "截止守望未装配")
+        # 插件开关（M5）：截止守望被"卸载"时接口降级
+        if not load_settings().yaml_config.features.get("deadlines", True):
+            raise HTTPException(503, "截止守望插件未安装（config.yaml features.deadlines）")
         report = usecases.deadline.execute(push=False)  # 只读：不推送不记账
         return {
             "count": len(report.upcoming),
@@ -485,6 +516,139 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
                 for a in report.upcoming
             ],
         }
+
+    # ---------- M5：Codex 式工作台接口 ----------
+
+    @app.get("/api/projects")
+    def list_projects() -> dict:
+        """项目列表：比赛卡自动派生 + 手动新建，含各自的会话归属数。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "工作台未装配")
+        projects = usecases.workspace.list_projects()
+        return {
+            "count": len(projects),
+            "projects": [
+                {"key": p.key, "name": p.name, "source": p.source,
+                 "deadline": p.deadline.date().isoformat() if p.deadline else None,
+                 "sessions": p.sessions}
+                for p in projects
+            ],
+        }
+
+    @app.post("/api/projects")
+    def create_project(req: ProjectCreateRequest) -> dict:
+        """手动新建工作区项目。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "工作台未装配")
+        try:
+            project = usecases.workspace.create_project(req.name)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        return {"key": project.key, "name": project.name}
+
+    @app.post("/api/projects/bind")
+    def bind_session_to_project(req: ProjectBindRequest) -> dict:
+        """把会话归属到项目（composer 的项目 chip 选择后调用）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "工作台未装配")
+        try:
+            ok = usecases.workspace.bind_session(req.session_id, req.project_key)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        if not ok:
+            raise HTTPException(404, f"会话 {req.session_id} 不存在")
+        return {"bound": True, "session_id": req.session_id, "project_key": req.project_key}
+
+    @app.get("/api/search")
+    def global_search(q: str = "") -> dict:
+        """全局搜索：会话备注 / 比赛卡片名 / 通知标题。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "搜索未装配")
+        return usecases.workspace.search(q)
+
+    @app.get("/api/notifications")
+    def notifications() -> dict:
+        """铃铛下拉数据：紧急截止 + 近期完成数。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "通知未装配")
+        return usecases.workspace.notifications()
+
+    @app.get("/api/skills")
+    def list_skills() -> dict:
+        """技能清单（skills/ 目录真实文件 + frontmatter）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "技能查询未装配")
+        skills = usecases.workspace.list_skills()
+        return {"count": len(skills), "skills": skills}
+
+    @app.get("/api/files")
+    def list_files() -> dict:
+        """output/ 目录文件清单（右侧工具面板用）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "文件面板未装配")
+        files = usecases.workspace.list_files()
+        return {"count": len(files), "files": files}
+
+    @app.get("/api/files/content")
+    def file_content(name: str) -> dict:
+        """读取 output/ 下某个文件的前 2000 字（工具面板预览）。
+        只允许纯文件名（防路径穿越），且文件必须真实存在于 output/。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "文件面板未装配")
+        if "/" in name or "\\" in name or ".." in name:
+            raise HTTPException(422, "非法文件名")
+        target = PROJECT_ROOT / "output" / name
+        if not target.is_file():
+            raise HTTPException(404, f"文件 {name} 不存在")
+        text = target.read_text(encoding="utf-8", errors="replace")[:2000]
+        return {"name": name, "content": text}
+
+    @app.get("/api/git/branch")
+    def git_branch() -> dict:
+        """当前 git 分支（composer 的分支 chip）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "未装配")
+        return {"branch": usecases.workspace.git_branch()}
+
+    @app.get("/api/plugins")
+    def list_plugins() -> dict:
+        """插件清单（能力开关映射，安装状态读自 config）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "插件未装配")
+        plugins = usecases.workspace.plugins_status(load_settings().yaml_config)
+        installed = [p for p in plugins if p["enabled"]]
+        return {
+            "count": len(plugins),
+            "installed_count": len(installed),
+            "plugins": [
+                {k: v for k, v in p.items() if k != "key"}
+                for p in plugins
+            ],
+        }
+
+    @app.post("/api/plugins/{plugin_id}/toggle")
+    def toggle_plugin(plugin_id: str, req: PluginToggleRequest) -> dict:
+        """安装/卸载插件（写 config features 开关；通道类插件需去 config 配置）。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "插件未装配")
+        plugins = usecases.workspace.plugins_status(load_settings().yaml_config)
+        target = next((p for p in plugins if p["id"] == plugin_id), None)
+        if target is None:
+            raise HTTPException(404, f"插件 {plugin_id} 不存在")
+        if not target["toggleable"]:
+            raise HTTPException(
+                422, f"{target['name']} 由 config 的 push 配置驱动："
+                     f"填写/移除对应配置段即完成安装/卸载"
+            )
+        set_feature(target["key"], req.enabled)
+        return {"id": plugin_id, "enabled": req.enabled}
+
+    @app.post("/api/config/access")
+    def update_access(req: AccessRequest) -> dict:
+        """完全访问总闸（M5 composer 的"⚠ 完全访问"开关）：
+        开 = 权限门全放行；关 = config 名单生效。"""
+        set_access_full(req.full)
+        return {"access_full": req.full}
 
     # ---------- 前端静态托管：构建产物存在才挂载，`sai serve` 单端口全搞定 ----------
 

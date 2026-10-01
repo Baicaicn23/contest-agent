@@ -38,9 +38,12 @@ class PermissionGate:
         confirm_tools: list[str] | tuple[str, ...] = (),
         unattended_deny_tools: list[str] | tuple[str, ...] = (),
         interactive: bool | None = None,
+        full_access: bool = False,
     ):
         self._confirm = set(confirm_tools)
         self._deny_unattended = set(unattended_deny_tools)
+        # M5 完全访问总闸：True = 名单全部忽略、一切放行（前端"⚠ 完全访问"开关）
+        self._full_access = full_access
         if interactive is None:
             # 自动探测：stdin 连着终端 = 有人；cron/管道/服务 = 无人值守。
             # 测试可以直接传 True/False 跳过探测
@@ -53,7 +56,10 @@ class PermissionGate:
 
         套在外壳链的"截断壳之外、记录壳之内"：拒绝的结果也会被记进
         会话轨迹（回放时看得到模型被拦了），但不会真的执行到原函数。
+        总闸开（full_access）时直接放行一切。
         """
+        if self._full_access:
+            return func
         name = getattr(func, "__name__", "tool")
 
         # 规则一：无人值守 + 明确禁用名单 → 一律拒绝

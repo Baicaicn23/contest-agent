@@ -94,6 +94,19 @@ class MemoryModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class ProjectModel(Base):
+    """projects 表：用户手动新建的工作区项目（M5）。
+
+    比赛自动派生的项目不落库（从卡片现算）；这张表只存手动建的。
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class SessionModel(Base):
     """agent_sessions 表：一次任务会话（M2 会话存档）。一行 = 一次 sai 命令或一次接口调用。"""
 
@@ -106,6 +119,8 @@ class SessionModel(Base):
     # running / completed / failed / budget_break
     started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 归属的工作区项目键（M5）："card:<url_hash>" 或 "manual:<id>"；未归属为 NULL
+    project_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 
 class SessionEventModel(Base):

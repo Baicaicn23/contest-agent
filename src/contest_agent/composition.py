@@ -35,12 +35,14 @@ from .application.usecases.scan_site import ScanSite
 from .application.usecases.session_report import SessionReport
 from .application.usecases.usage_report import UsageReport
 from .application.usecases.watch_site import WatchSite
+from .application.usecases.workspace import WorkspaceService
 from .infrastructure.crawler.notice_source import RequestsNoticeSource
 from .infrastructure.llm.openai_compat import OpenAiCompatLlm
 from .infrastructure.persistence.repository import (
     SqliteCompetitionRepository,
     SqliteMemoryRepository,
     SqliteNoticeRepository,
+    SqliteProjectRepository,
     SqliteSessionRepository,
     SqliteUsageRepository,
 )
@@ -66,8 +68,7 @@ __all__ = [
     "build_notice_repository",
     "build_notice_source",
     "build_permission_gate",
-    "build_plan_study_path_usecase",
-    "build_report_usecase",
+    "build_plan_study_path_usecase",    "build_report_usecase",
     "build_scan_usecase",
     "build_search",
     "build_session_report_usecase",
@@ -75,6 +76,7 @@ __all__ = [
     "build_usage_report_usecase",
     "build_usage_repository",
     "build_usecases",
+    "build_workspace_service",
     "build_watch_usecase",
 ]
 
@@ -145,6 +147,7 @@ def build_permission_gate():
     return PermissionGate(
         confirm_tools=perms.confirm_tools,
         unattended_deny_tools=perms.unattended_deny_tools,
+        full_access=perms.access_full,
     )
 
 
@@ -491,6 +494,7 @@ def build_usecases() -> Usecases:
         sessions=build_session_report_usecase(),
         usage_report=build_usage_report_usecase(),
         chat=chat_service,
+        workspace=build_workspace_service(),
         deadline=build_deadline_sentinel(pushers=[]),
         generate_material=(
             GenerateMaterial(
@@ -528,6 +532,38 @@ def build_app() -> FastAPI:
     return create_app(settings, build_usecases())
 
 
+def build_workspace_service() -> WorkspaceService:
+    """组装工作台面板服务（M5）：项目/搜索/通知/技能/文件/git/插件的数据源。
+
+    环境细节以注入方式进来：skills 与 output 是目录 Path，
+    git 分支用 subprocess 回调——application 层不碰文件系统与子进程。
+    """
+    import subprocess
+
+    settings = load_settings_or_raise()
+
+    def git_runner() -> str:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=PROJECT_ROOT,
+        )
+        return result.stdout
+
+    return WorkspaceService(
+        competition_repository=build_competition_repository(),
+        session_archive=build_session_repository(),
+        notice_repository=build_notice_repository(),
+        project_store=SqliteProjectRepository(settings.database_url),
+        usage_repository=build_usage_repository(),
+        memory=build_memory_repository(),
+        skills_dir=PROJECT_ROOT / "skills",
+        output_dir=PROJECT_ROOT / "output",
+        git_runner=git_runner,
+    )
+
+
 # 模块级 app：cli.py 里 uvicorn.run("contest_agent.composition:app")
 # 按这个字符串来启动服务，找到的就是这个变量
 app = build_app()
+

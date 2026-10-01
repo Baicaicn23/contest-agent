@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Protocol
 
-from .entities import Competition, Notice, UsageEntry
+from .entities import Competition, Notice, ProjectInfo, UsageEntry
 
 
 class NoticeSourcePort(Protocol):
@@ -173,6 +173,22 @@ class PushPort(Protocol):
     @property
     def channel_name(self) -> str:
         """通道名（webhook / smtp / file），推送结果播报用。"""
+        ...
+
+
+class ProjectStorePort(Protocol):
+    """能力十一：手动项目的存取（M5 由 infrastructure/persistence 实现）。
+
+    自动项目（比赛卡派生）不落库——直接从卡片仓储现算；
+    这里只管用户手动新建的那部分。
+    """
+
+    def create(self, name: str) -> int:
+        """新建手动项目，返回编号。"""
+        ...
+
+    def list_manual(self) -> list["ProjectInfo"]:
+        """列出手动项目。"""
         ...
 
 

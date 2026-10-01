@@ -9,7 +9,8 @@ import MsgBubble, { ToolBlock } from '../components/MsgBubble.jsx'
 // 翻译规则：user_input → 右气泡；result → 助手正文；tool_call → 可折叠块；
 // error → 红色助手消息。task_type 是 chat 的会话可以继续聊，其余只读。
 export default function ChatView({ sessionId, title, initialUser, initialAssistant,
-                                   onSessionsChanged }) {
+                                   onSessionsChanged, bindProjectKey, projectName,
+                                   onCloseTab }) {
   const [messages, setMessages] = useState([])   // {role, content, time?, tool?}
   const [chatSessionId, setChatSessionId] = useState(sessionId)  // null = 首发后由服务端分配
   const [taskType, setTaskType] = useState(sessionId ? null : 'chat')
@@ -91,6 +92,10 @@ export default function ChatView({ sessionId, title, initialUser, initialAssista
               copy[copy.length - 1] = { role: 'assistant', content: ev.reply, time: now() }
               return copy
             })
+            // 首页选了项目：会话落地后自动归属到该项目（M5）
+            if (bindProjectKey && currentSession) {
+              api.bindSession(currentSession, bindProjectKey).catch(() => {})
+            }
           } else if (ev.type === 'error') {
             setMessages((m) => {
               const copy = [...m]
