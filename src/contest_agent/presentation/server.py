@@ -589,6 +589,20 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
         files = usecases.workspace.list_files()
         return {"count": len(files), "files": files}
 
+    @app.get("/api/files/content")
+    def file_content(name: str) -> dict:
+        """读取 output/ 下某个文件的前 2000 字（工具面板预览）。
+        只允许纯文件名（防路径穿越），且文件必须真实存在于 output/。"""
+        if usecases is None or usecases.workspace is None:
+            raise HTTPException(503, "文件面板未装配")
+        if "/" in name or "\\" in name or ".." in name:
+            raise HTTPException(422, "非法文件名")
+        target = PROJECT_ROOT / "output" / name
+        if not target.is_file():
+            raise HTTPException(404, f"文件 {name} 不存在")
+        text = target.read_text(encoding="utf-8", errors="replace")[:2000]
+        return {"name": name, "content": text}
+
     @app.get("/api/git/branch")
     def git_branch() -> dict:
         """当前 git 分支（composer 的分支 chip）。"""

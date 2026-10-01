@@ -1,64 +1,61 @@
+import { useEffect, useState } from 'react'
+import { api } from '../api.js'
 import { UserBox } from './UserMenu.jsx'
 
-// 左侧栏：顶部模式切换（情报站/工作台）→ 菜单 → 会话列表 → 底部用户区。
-// 两个模式共用这根侧栏，菜单项按模式切换（对应截图 1 与截图 3 的差异）。
-const TASK_LABELS = {
-  chat: '对话',
-  identify: '识别',
-  watch: '盯梢',
-  generate: '生成材料',
-  study_path: '备考路径',
-  eval: '评测',
-}
+// Codex 式侧栏：头部（产品名/通知铃/搜索）→ 新聊天 → 项目树 → skills配置 → 最近。
+// 项目树 = 比赛卡自动派生的项目（M5），子行显示归属的会话数。
+export default function Sidebar({ sessions, activeSessionId, onOpenSession,
+                                  onNewChat, onOpenSettings, onOpenSearch,
+                                  onOpenPlugins }) {
+  const [projects, setProjects] = useState([])
+  const [notifCount, setNotifCount] = useState(0)
 
-export default function Sidebar({ mode, onModeChange, sessions, activeSessionId,
-                                  onOpenSession, onNewChat, onOpenSettings }) {
+  useEffect(() => {
+    api.projects().then((r) => setProjects(r.projects)).catch(() => {})
+    api.notifications().then((n) => {
+      setNotifCount(n.urgent_deadlines?.length || 0)
+    }).catch(() => {})
+  }, [])
+
   return (
-    <aside className="sidebar">
-      <div className="mode-switch">
-        <button className={mode === 'cowork' ? 'active' : ''}
-                onClick={() => onModeChange('cowork')}>
-          <span>◈</span> 情报站
-        </button>
-        <button className={mode === 'code' ? 'active' : ''}
-                onClick={() => onModeChange('code')}>
-          <span>⌘</span> 工作台
-        </button>
+    <aside className="sidebar codex">
+      <div className="side-head">
+        <span className="side-product">Contest Agent <span className="chev">⌄</span></span>
+        <span className="side-head-icons">
+          <button className="icon-btn" title={notifCount ? `${notifCount} 条紧急截止` : '通知'}
+                  onClick={onOpenSearch} style={{ position: 'relative' }}>
+            🔔
+            {notifCount > 0 && <span className="badge">{notifCount}</span>}
+          </button>
+          <button className="icon-btn" title="搜索" onClick={onOpenSearch}>🔍</button>
+        </span>
       </div>
 
       <button className="side-item" onClick={onNewChat}>
-        <span className="icon">＋</span> 新会话
+        <span className="icon">✎</span> 新聊天
       </button>
 
-      {mode === 'cowork' ? (
-        <>
-          <button className="side-item"><span className="icon">▤</span> 项目</button>
-          <button className="side-item"><span className="icon">▣</span> 工件</button>
-          <button className="side-item"><span className="icon">◔</span> 定时任务</button>
-          <button className="side-item" onClick={onOpenSettings}>
-            <span className="icon">✎</span> 自定义
-          </button>
-        </>
-      ) : (
-        <button className="side-item" onClick={onOpenSettings}>
-          <span className="icon">✎</span> 自定义
+      <div className="side-section">项目</div>
+      {projects.map((p) => (
+        <button key={p.key} className="side-item project"
+                title={`${p.name}（${p.sessions} 个会话）`}
+                onClick={() => onOpenSession({ id: p.key, name: p.name })}>
+          <span className="icon">▤</span>
+          <span className="title">{p.name}</span>
+          {p.deadline && <span className="proj-ddl">{p.deadline.slice(5)}</span>}
         </button>
-      )}
+      ))}
 
-      {mode === 'cowork' && <div className="side-section">任务</div>}
-      {mode === 'code' && (
-        <div className="side-section">
-          <span>近期会话</span>
-        </div>
-      )}
-      {mode === 'code' && sessions.map((s) => (
+      <button className="side-item" onClick={onOpenPlugins}>
+        <span className="icon">⬡</span> skills配置
+      </button>
+
+      <div className="side-section">最近</div>
+      {sessions.map((s) => (
         <button key={s.id}
                 className={`session-item ${activeSessionId === s.id ? 'active' : ''}`}
                 onClick={() => onOpenSession(s)}>
-          <span className={`dot ${s.status === 'completed' ? 'done' : ''}`} />
-          <span className="title">
-            {TASK_LABELS[s.task_type] || s.task_type} · {s.note || `#${s.id}`}
-          </span>
+          <span className="title">{s.note || `${s.task_type} #${s.id}`}</span>
         </button>
       ))}
 

@@ -45,6 +45,24 @@ export const api = {
   cost: (query = '') => jfetch(`/cost${query}`),
   report: () => jfetch('/report'),
   deadlines: () => jfetch('/api/deadlines'),
+  projects: () => jfetch('/api/projects'),
+  createProject: (name) =>
+    jfetch('/api/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+  bindSession: (sessionId, projectKey) =>
+    jfetch('/api/projects/bind', { method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, project_key: projectKey }) }),
+  search: (q) => jfetch(`/api/search?q=${encodeURIComponent(q)}`),
+  notifications: () => jfetch('/api/notifications'),
+  skills: () => jfetch('/api/skills'),
+  files: () => jfetch('/api/files'),
+  fileContent: (name) => jfetch(`/api/files/content?name=${encodeURIComponent(name)}`),
+  gitBranch: () => jfetch('/api/git/branch'),
+  plugins: () => jfetch('/api/plugins'),
+  togglePlugin: (id, enabled) =>
+    jfetch(`/api/plugins/${id}/toggle`, { method: 'POST',
+      body: JSON.stringify({ enabled }) }),
+  setAccess: (full) =>
+    jfetch('/api/config/access', { method: 'POST', body: JSON.stringify({ full }) }),
 
   chatClose: (sessionId) =>
     jfetch('/api/chat/close', { method: 'POST', body: JSON.stringify({ session_id: sessionId }) }),
