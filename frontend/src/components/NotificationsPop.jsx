@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
+import { Toggle } from '../views/SettingsPage.jsx'
 
 // 通知下拉（侧栏"通知"按钮）：紧急截止 + 近期完成数。数据来自真实台账与守望。
-// M6：修好接线（此前按钮误开搜索）、fixed 定位挂侧栏头部下方、
-// 关闭钮统一左上、Esc 关闭、紧迫度用彩点表达（无 emoji 规范）。
-export default function NotificationsPop({ onOpenDeadlines, onClose }) {
+// M10 加"桌面截止提醒"开关：借用户手势申请浏览器 Notification 权限，
+// 之后由 App 轮询弹系统通知（零后端）。
+export default function NotificationsPop({ onOpenDeadlines, onClose,
+                                            desktopNotify, onToggleDesktopNotify }) {
   const [data, setData] = useState(null)
   useEffect(() => {
     api.notifications().then(setData).catch(() => {})
@@ -39,6 +41,17 @@ export default function NotificationsPop({ onOpenDeadlines, onClose }) {
           </span>
         </div>
       ))}
+      <div className="menu-sep" />
+      {/* 桌面提醒开关（M10）：浏览器 Notification API，零后端 */}
+      <div className="menu-item" style={{ cursor: 'default' }}
+           onClick={(e) => e.stopPropagation()}>
+        <span className="icon">铃</span>
+        <span style={{ flex: 1 }}>桌面截止提醒
+          <br />
+          <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>进入警报窗口时弹系统通知</span>
+        </span>
+        <Toggle on={desktopNotify} onChange={onToggleDesktopNotify} />
+      </div>
       <div className="menu-sep" />
       <button className="menu-item" onClick={() => { onClose(); onOpenDeadlines() }}>
         查看全部截止日程

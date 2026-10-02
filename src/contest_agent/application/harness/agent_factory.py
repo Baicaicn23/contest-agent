@@ -289,6 +289,65 @@ async def _add_tool(toolkit: Toolkit, func: Callable[..., str], recorder=None, g
     await toolkit.add_tool(FunctionTool(func=wrapped, permission=ALLOWED))
 
 
+def _extract_pdf_text(path: Path, max_pages: int = 40) -> str | None:
+    """PDF 文本提取（M10 附件阅读）。pypdf 未安装返回 None；失败/扫描件返回空串。
+
+    限 40 页：composer 场景足够，也防几百页的 PDF 把一次工具调用拖死。
+    """
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    try:
+        reader = PdfReader(str(path))
+        pages = reader.pages[:max_pages]
+        return "\n".join((page.extract_text() or "") for page in pages)
+    except Exception:
+        return ""
+
+
+def _make_read_attachment(uploads_dir: Path | None, trace: list[str]) -> Callable[..., str]:
+    """制造"读附件"工具函数（M10）：让 agent 能读用户上传到 output/uploads/ 的文件。
+
+    与 save_material 同款安全约束：只取文件名部分（防路径穿越），
+    绝不允许跳出 uploads/ 目录。支持纯文本与 PDF；Office 文档暂不支持
+    （诚实告知用户转换格式），这是刻意的能力边界而不是遗漏。
+    """
+    def read_attachment(filename: str) -> str:
+        """读取用户上传的附件内容。filename 是消息里 [已上传: xxx] 中的文件名（如 要求.pdf），或 uploads/ 里的文件名。"""
+        if uploads_dir is None or not uploads_dir.is_dir():
+            return "附件目录不可用（uploads/ 未创建）。请让用户重新上传一次。"
+        trace.append(f"read_attachment({filename})")
+        # 防穿越：无论传进什么路径，只取最后一段文件名
+        name = Path((filename or "").strip().replace("\\", "/")).name
+        if not name:
+            return "附件名为空。消息里 [已上传: xxx] 括号中的内容就是文件名。"
+        target = uploads_dir / name
+        if not target.is_file():
+            existing = ", ".join(p.name for p in sorted(uploads_dir.iterdir()) if p.is_file()) or "（空）"
+            return f"找不到附件 {name!r}。uploads/ 里现有：{existing}"
+        suffix = target.suffix.lower()
+        if suffix == ".pdf":
+            text = _extract_pdf_text(target)
+            if text is None:
+                return f"{name} 是 PDF，但当前环境缺少 pypdf，无法提取文字。"
+            if not text.strip():
+                return f"{name} 提取不到文字——可能是扫描件/图片型 PDF。请让用户把关键内容直接粘贴给我。"
+            body = text
+        elif suffix in {".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}:
+            return (f"{name} 是 Office 文档，暂时读不了文本内容。"
+                    f"请用户把内容粘贴为文字，或导出成 PDF / Markdown 后重新上传。")
+        else:
+            try:
+                body = target.read_text(encoding="utf-8", errors="replace")
+            except Exception as error:
+                return f"读取 {name} 失败：{error}"
+        if len(body) > 8000:
+            body = body[:8000] + f"\n…（已截断，全文 {len(body)} 字符，需要更多请让用户分段提供）"
+        return f"附件 {name} 的内容：\n\n{body}"
+    return read_attachment
+
+
 def _make_save_material(output_dir: Path, trace: list[str]) -> Callable[..., str]:
     """制造"保存材料"工具函数（材料和备考路径两个任务共用）。
 
@@ -560,10 +619,11 @@ async def build_chat_tools(
     sentinel,
     recorder=None,
     gate=None,
+    uploads_dir: Path | None = None,
 ) -> MaterialTools:
     """聊天 agent 的工具箱：让它"自己动手"而不是教用户敲命令。
 
-    六件工具对应聊天的典型意图：
+    七件工具对应聊天的典型意图：
     - list_competitions / query_deadlines：读库（查卡片、查截止）
     - get_notice_content：读某条通知的原文
     - search_web：联网搜索
@@ -656,6 +716,7 @@ async def build_chat_tools(
         "query_deadlines": query_deadlines,
         "scan_latest_notices": scan_latest_notices,
         "identify_latest_notices": identify_latest_notices,
+        "read_attachment": _make_read_attachment(uploads_dir, tools.trace),
     }
     for func in functions.values():
         await _add_tool(tools.toolkit, func, recorder, gate)

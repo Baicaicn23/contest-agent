@@ -293,6 +293,7 @@ def build_chat_service() -> ChatService:
             identify_usecase=identify_usecase,
             sentinel=sentinel,
             gate=build_permission_gate(block_unattended_writes=True),   # M9 修复：聊天工具此前完全没过权限门
+            uploads_dir=PROJECT_ROOT / "output" / "uploads",   # M10：读用户上传的附件
         )
         return run_chat_agent_stream(
             profile=chat_profile,

@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml>=6.0",
     "agentscope==2.0.8",
     "python-pptx>=1.0.2",
+    "pypdf>=6.19.0",
 ]
 
 [dependency-groups]

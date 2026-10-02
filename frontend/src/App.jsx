@@ -41,6 +41,8 @@ export default function App() {
   const [sideCollapsed, setSideCollapsed] = useState(() => localStorage.getItem('ca-side-collapsed') === '1')
   // 正在运行的会话（M8 侧栏树转圈）：ChatView 发消息时标记，结束/异常时解除
   const [runningIds, setRunningIds] = useState(() => new Set())
+  // 桌面截止提醒（M10）：用户在通知弹层里开启；浏览器 Notification API，零后端
+  const [desktopNotify, setDesktopNotify] = useState(() => localStorage.getItem('ca-desktop-notify') === '1')
 
   const toggleSide = () => {
     setSideCollapsed((c) => {
@@ -86,6 +88,54 @@ export default function App() {
   const handleSessionCreated = (sessionId) => {
     setTabs((ts) => ts.map((t) => (t.key === activeTab && t.sessionId == null ? { ...t, sessionId } : t)))
   }
+
+  // 桌面截止提醒开关：首次开启要借用户手势向浏览器申请权限，并把当前已有的
+  // 紧急截止标记为"已提醒"（防止一打开就轰炸历史项，只报新增的）
+  const toggleDesktopNotify = async () => {
+    if (!desktopNotify) {
+      if (!('Notification' in window)) {
+        alert('这个浏览器不支持桌面通知。')
+        return
+      }
+      let permission = Notification.permission
+      if (permission === 'default') permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        alert('通知权限被拒绝。可以在浏览器地址栏左侧的站点设置里重新允许。')
+        return
+      }
+      localStorage.setItem('ca-desktop-notify', '1')
+      setDesktopNotify(true)
+      try {
+        const n = await api.notifications()
+        const seen = new Set(JSON.parse(localStorage.getItem('ca-notified') || '[]'))
+        for (const d of n.urgent_deadlines || []) seen.add(`${d.name}|${d.label}`)
+        localStorage.setItem('ca-notified', JSON.stringify([...seen]))
+      } catch { /* 拉不到就下次再标 */ }
+    } else {
+      localStorage.setItem('ca-desktop-notify', '0')
+      setDesktopNotify(false)
+    }
+  }
+
+  // 提醒轮询：每 60 秒拉一次紧急截止，只弹 localStorage 里没见过的（新增进入警报窗口的）
+  useEffect(() => {
+    if (!desktopNotify) return
+    const check = async () => {
+      try {
+        const n = await api.notifications()
+        const seen = new Set(JSON.parse(localStorage.getItem('ca-notified') || '[]'))
+        const fresh = (n.urgent_deadlines || []).filter((d) => !seen.has(`${d.name}|${d.label}`))
+        for (const d of fresh) {
+          new Notification('比赛截止提醒', { body: `${d.name} — ${d.label}` })
+          seen.add(`${d.name}|${d.label}`)
+        }
+        if (fresh.length) localStorage.setItem('ca-notified', JSON.stringify([...seen]))
+      } catch { /* 网络抖动下轮再说 */ }
+    }
+    check()
+    const timer = setInterval(check, 60_000)
+    return () => clearInterval(timer)
+  }, [desktopNotify])
 
   useEffect(() => {
     refreshConfig(); refreshSessions()
@@ -339,7 +389,9 @@ export default function App() {
       {notifOpen && (
         <NotificationsPop
           onClose={() => setNotifOpen(false)}
-          onOpenDeadlines={() => setRail('deadlines')} />
+          onOpenDeadlines={() => setRail('deadlines')}
+          desktopNotify={desktopNotify}
+          onToggleDesktopNotify={toggleDesktopNotify} />
       )}
 
       {searchOpen && (

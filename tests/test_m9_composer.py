@@ -111,3 +111,69 @@ def test_upload_endpoint_saves_and_sanitizes(client, tmp_path: Path) -> None:
     finally:
         for path in uploaded:
             path.unlink(missing_ok=True)
+
+
+# ---------- M10：read_attachment 工具（agent 读用户上传的附件） ----------
+
+
+def test_read_attachment_text_and_traversal(tmp_path: Path) -> None:
+    """文本附件直接读；穿越文件名只取文件名部分；找不到时列出现有文件。"""
+    from contest_agent.application.harness.agent_factory import _make_read_attachment
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    (uploads / "要求.md").write_text("# 比赛要求\n提交 PPT 十页内", encoding="utf-8")
+    trace = []
+    tool = _make_read_attachment(uploads, trace)
+
+    out = tool("要求.md")
+    assert "比赛要求" in out and "PPT" in out
+    assert trace == ["read_attachment(要求.md)"]
+
+    # ../settings.py → 只取 settings.py，找不到并列出现有文件
+    out2 = tool("../settings.py")
+    assert "找不到附件" in out2 and "要求.md" in out2
+    assert "contest_agent" not in out2   # 没把项目外文件内容带出来
+
+
+def test_read_attachment_office_unsupported_and_pdf(tmp_path: Path) -> None:
+    """Office 文档诚实告知不支持；PDF 走 pypdf 提取（用最小 PDF 验证链路）。"""
+    from contest_agent.application.harness.agent_factory import _make_read_attachment
+
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    (uploads / "说明.docx").write_bytes(b"fake")
+    tool = _make_read_attachment(uploads, [])
+    assert "Office" in tool("说明.docx") and "PDF" in tool("说明.docx")
+
+    # 用 pypdf 生成一个合法 PDF（含文本外观流），再走工具读出来
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import (
+        DecodedStreamObject, DictionaryObject, NameObject,
+    )
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=200, height=100)
+    content = DecodedStreamObject()
+    content.set_data(b"BT /F1 12 Tf 20 50 Td (hello attachment) Tj ET")
+    page[NameObject("/Contents")] = writer._add_object(content)
+    font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+    })
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/Font"): DictionaryObject({NameObject("/F1"): writer._add_object(font)}),
+    })
+    buf = io.BytesIO()
+    writer.write(buf)
+    (uploads / "hello.pdf").write_bytes(buf.getvalue())
+
+    out = tool("hello.pdf")
+    assert "hello attachment" in out
+
+    # uploads_dir 未配置（None）：不炸，给可读提示
+    none_tool = _make_read_attachment(None, [])
+    assert "重新上传" in none_tool("x.txt")

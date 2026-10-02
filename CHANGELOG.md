@@ -4,6 +4,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M10 用户视角三连
+
+### 新增
+
+- **消息 Markdown 渲染**：手写块级解析器（表格/代码块/标题/引用/水平线 + 行内粗体
+  行内码 + bullet/ordered），不引库、不走 innerHTML；fenced 未闭合流式容错；
+  表格横滚 + 表头底色 + 斑马纹；agent 返回的表格终于"长成表格"
+- **agent 读附件（read_attachment 第七件聊天工具）**：接通 M9 上传的断头路——
+  纯文本直读、PDF 走 pypdf（限 40 页、8000 字截断）、Office 诚实告知不支持并给出路；
+  防路径穿越（只取文件名）；找不到附件时列出现有文件；系统提示词同步工具引导
+- **桌面截止提醒**：通知弹层开关（借用户手势申请浏览器 Notification 权限）+
+  App 60 秒轮询 urgent_deadlines，只弹增量（首次开启标记存量防轰炸）；
+  纯前端零后端，守望能力的最后一公里
+
+### 变更
+
+- 新依赖 pypdf（PDF 文本提取）；聊天系统提示词加入附件工具引导
+
+### 测试
+
+- 离线 178 项（新增 2：附件文本/穿越守卫、Office 边界 + pypdf 写读链路验证）
+  + live 4 项全绿
+- browser-use 三连验收：markdown 表格渲染实拍 / 附件问答端到端（agent 自主调
+  read_attachment 逐条复述并结合真实截止日期）/ 通知开关与权限链路
+
 ## [Unreleased] — M9 首页精简与 Composer 集成
 
 ### 新增
