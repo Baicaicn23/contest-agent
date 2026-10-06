@@ -6,8 +6,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/Frontend-React%2018-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![Tests](https://img.shields.io/badge/tests-133%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2015-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![Tests](https://img.shields.io/badge/tests-178%20passing-3DDC84?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ![工作台首页](docs/images/home.png)
@@ -34,7 +34,7 @@ cp .env.example .env        # 填入 DEEPSEEK_API_KEY（DeepSeek 平台申请）
 ```bash
 uv run sai identify         # 识别最新通知：AI 挑出比赛，输出带原文证据的卡片
 uv run sai cost --today     # 今天花了多少钱（每次调用都记账）
-uv run pytest               # 133 项测试，离线不花钱
+uv run pytest               # 178 项测试，离线不花钱
 ```
 
 ## ✨ 它能干什么
@@ -70,7 +70,7 @@ HTTP 接口：`/health` `/scan` `/identify` `/competitions` `/report` `/cost` `/
 
 ## 🖥️ Web 界面
 
-构建前端后 `./start.sh` 或 `uv run sai serve`，浏览器打开即是完整界面：**工作台**（Overview 六统计 + 18 周热力图，全部来自真实成本台账）、**情报站**（大字问候 + 一键点子）、**会话**（逐字流式对话 + 任务轨迹回放）、**Settings**（亮暗主题、字号、切模型档案、改预算——真实写回 config.yaml）。输入框敲 `/` 唤起命令面板。界面按桌面级标准打磨：悬浮式侧栏（圆角 + 阴影 + 留白）、全部按钮带 hover/按压/键盘焦点四态反馈、视图与弹层均有衔接动画（系统开启"减弱动态效果"时自动禁用）、关闭钮统一左上 + Esc 全覆盖。
+构建前端后 `./start.sh` 或 `uv run sai serve`，浏览器打开即是完整界面：**工作台**（serif 时段问候 + 居中输入卡，上传附件/切模型/三档权限/上下文占用都在输入卡上）、**会话**（逐字流式对话 + Markdown 表格渲染 + 任务轨迹回放 + 运行中转圈）、侧栏按项目分组管理会话、**设置**（切模型档案/预算/三档权限/桌面截止通知——真实写回 config.yaml）。输入框敲 `/` 唤起命令面板。技术栈：Next.js 15 (App Router) + TypeScript + Tailwind，静态导出由 FastAPI 托管（单端口部署不变）。
 
 ## 架构
 
@@ -98,7 +98,7 @@ src/contest_agent/
 frontend/              # Next.js 15 + TypeScript + Tailwind Web 界面（静态导出 out/）
 skills/                # 技能文件（PPT 大纲 / 计划书 / 备考路径）
 tests/fixtures/        # 真实页面样本 + 31 条评测考卷
-docs/adr/              # 架构决策记录（ADR-001/002/003）
+docs/                  # 文档体系（tutorials/how-to/reference/explanation/adr/archive）
 ```
 
 </details>
@@ -120,7 +120,7 @@ docs/adr/              # 架构决策记录（ADR-001/002/003）
 
 ## 🎓 也是一个学习项目
 
-从零走完整个开发流程的教材：每个里程碑一篇讲解文档（为什么 > 怎么做 > 踩坑），重大决策立 ADR。索引见 [`docs/开发文档-v1.md`](docs/开发文档-v1.md)。
+从零走完整个开发流程的教材：按 [Diátaxis 框架](https://diataxis.fr) 组织文档——教程（手把手跑通）、操作指南（推送/模型/权限/评测）、参考（架构/配置/API/CLI）、设计决策（ADR + 30 篇过程讲解索引）。入口：[`docs/README.md`](docs/README.md)。
 
 ## 🤝 贡献与许可
 

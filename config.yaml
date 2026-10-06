@@ -44,7 +44,7 @@ push:
 permissions:
   # 三档权限模式（M9，前端 composer 可切）：
   #   readonly = 只读（写类工具一律拒绝） / confirm = 变更前确认（默认） / full = 完全访问
-  permission_mode: confirm
+  permission_mode: readonly
   confirm_tools: []
   unattended_deny_tools: []
 
