@@ -739,10 +739,14 @@ def create_app(settings: Settings | None = None, usecases: Usecases | None = Non
 
     # ---------- 前端静态托管：构建产物存在才挂载，`sai serve` 单端口全搞定 ----------
 
-    dist_dir = PROJECT_ROOT / "frontend" / "dist"
-    if dist_dir.is_dir():
+    # 前端产物（M11 迁移到 Next.js 后是 out/；dist/ 是旧 Vite 的目录，留作兼容回退）
+    static_dir = next(
+        (d for d in (PROJECT_ROOT / "frontend" / "out", PROJECT_ROOT / "frontend" / "dist") if d.is_dir()),
+        None,
+    )
+    if static_dir is not None:
         from fastapi.staticfiles import StaticFiles
 
-        app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app

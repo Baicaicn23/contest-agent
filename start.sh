@@ -6,7 +6,7 @@
 #   ./start.sh --port 8001     # 其他参数原样传给 sai serve（如换端口）
 #
 # 它只做两件事：
-#   1) 发现 frontend/dist 不存在（或你点名 --build）就先构建前端；
+#   1) 发现 frontend/out 不存在（或你点名 --build）就先构建前端；
 #   2) 启动 FastAPI 单端口服务（界面 + API 同端口）。
 # 定时推送等后台任务与它无关，仍用 cron + sai watch（见 README）。
 
@@ -19,7 +19,7 @@ if [ "${1:-}" = "--build" ]; then
   shift
 fi
 
-if [ "$BUILD" = 1 ] || [ ! -f frontend/dist/index.html ]; then
+if [ "$BUILD" = 1 ] || [ ! -f frontend/out/index.html ]; then
   echo "==> 构建前端…"
   if ! command -v npm >/dev/null; then
     echo "未检测到 npm（Node.js）。请先安装：https://nodejs.org （或跳过构建，用纯 API 模式：uv run sai serve）"

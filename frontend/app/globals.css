@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ────────────────────────────────────────────────────────────────────────
+   主题令牌（M11 迁移自 TeachX 的 snow 主题：纯白 + 蓝 accent，
+   Codex/ChatGPT 风格 chrome）。语义变量与 TeachX 同名，未来加主题
+   （cream/dark/glass）只需新增一组变量 + 一个 class。
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #0d0d0d;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f7f7;
+  --secondary-foreground: #0d0d0d;
+  --muted: #f2f2f2;
+  --muted-foreground: #6e6e6e;
+  --accent: #ececec;
+  --destructive: #d92d20;
+  --border: #e5e5e5;
+  --ring: #2563eb;
+  --overlay: rgba(0, 0, 0, 0.4);
+  --surface-raised: #ffffff;
+  --shadow-raised: 0 8px 30px rgba(13, 13, 13, 0.08);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 焦点环（全站统一）：键盘导航可见，鼠标点击不画圈 */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 动效可达性：系统减弱动态时全部直达终态 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }

@@ -34,8 +34,14 @@ def _seed(db_file: str):
     usage = SqliteUsageRepository(db_file)
     sessions = SqliteSessionRepository(db_file)
 
-    d1 = datetime(2026, 9, 29, 21, 0)   # 周二晚 9 点
-    d2 = datetime(2026, 9, 30, 10, 0)   # 周三上午
+    # 动态日期（修复跨月过期）：取本周一 21 点 + 周二 10 点——
+    # 写死日期的版本在跨月后（9→10 月）"本周"判断失效过一次
+    from datetime import timedelta
+
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    d1 = monday.replace(hour=21, minute=0)          # 本周一晚 9 点
+    d2 = d1 + timedelta(days=1, hours=-11)          # 周二上午 10 点
     usage.record(UsageEntry("identify", "deepseek", "deepseek-chat", 1000, 500, 0.006,
                             created_at=d1, session_id=1))
     usage.record(UsageEntry("generate", "deepseek", "deepseek-chat", 3000, 1500, 0.018,
@@ -65,7 +71,13 @@ def test_usage_report_aggregates_six_stats() -> None:
     # deepseek 共 6000 > qwen 1000
     assert summary.favorite_model == "deepseek-chat"
     assert summary.by_model == {"deepseek-chat": 6000, "qwen-plus": 1000}
-    assert [d.date for d in summary.daily] == ["2026-09-29", "2026-09-30"]
+    from datetime import timedelta as _td
+
+    _monday = datetime.now() - _td(days=datetime.now().weekday())
+    assert [d.date for d in summary.daily] == [
+        _monday.date().isoformat(),
+        (_monday + _td(days=1, hours=-11)).date().isoformat(),
+    ]
 
 
 def test_usage_report_range_filters_and_week_ratio() -> None:

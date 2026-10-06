@@ -4,6 +4,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased] — M11 前端迁移 Next.js + TS + Tailwind（TeachX 形态）
+
+### 变更
+
+- **前端整体重写**：Vite + React 18 + JS + 手写 CSS → **Next.js 15 App Router +
+  TypeScript + Tailwind + lucide-react**（用户指定完全迁移，参照 TeachX 项目形态）；
+  `output: "export"` 静态导出到 out/，FastAPI 单端口托管不变（server 兼容 out/ 与旧 dist/）
+- **形态复刻**：serif 时段问候（Good morning/afternoon/evening + Lora/宋体）+ 居中大
+  圆角输入卡（内嵌工具行）+ 窄侧栏（导航/会话列表/底部用户盒）+ 顶部细条 + 建议行；
+  shadcn 风格语义令牌（snow 纯白蓝单主题，变量结构可扩展）
+- **多标签模型改为侧栏会话列表切换**（TeachX 形态；运行中转圈/任务徽章/相对时间/
+  未归类组/按项目分组前置全保留）；会话路由用 ?session=N 查询参数（静态导出无动态段）
+- **状态架构对齐 TeachX**：AppStateProvider 集中 config/sessions/聊天运行时——
+  工作台发送 → 路由切 /chat，SSE 流跨页面不断线；15s sessions 轮询 + 60s 截止提醒挂 Provider
+- 修复 M4 用量测试日期写死跨月失效（本周断言改相对构造）
+
+### 测试
+
+- 离线 178 项 + live 4 项全绿；`next build` 静态导出 6 页全部可达（/chat 307→/chat/）
+- 端到端：工作台发消息 → 流式 → 自动路由 → 表格渲染 → 侧栏高亮 + 上下文 %
+
 ## [Unreleased] — M10 用户视角三连
 
 ### 新增

@@ -95,7 +95,7 @@ src/contest_agent/
 ├── presentation/      # FastAPI server + sai CLI
 ├── composition.py     # 装配根
 └── settings.py        # env > config.yaml > 默认值
-frontend/              # React 18 + Vite Web 界面
+frontend/              # Next.js 15 + TypeScript + Tailwind Web 界面（静态导出 out/）
 skills/                # 技能文件（PPT 大纲 / 计划书 / 备考路径）
 tests/fixtures/        # 真实页面样本 + 31 条评测考卷
 docs/adr/              # 架构决策记录（ADR-001/002/003）
@@ -115,6 +115,7 @@ docs/adr/              # 架构决策记录（ADR-001/002/003）
 - [x] **v2/M8** 侧栏完全复刻：SVG 图标 + 项目树折叠收纳 + 运行中任务转圈 + 删除/筛选/未归类
 - [x] **v2/M9** Composer 集成：上传/三档权限（只读·变更前确认·完全访问）/上下文 %/模型切换收进输入卡；首页精简
 - [x] **v2/M10** 用户视角三连：消息 Markdown 渲染（表格/代码块）+ agent 读附件（PDF/文本）+ 桌面截止通知
+- [x] **v2/M11** 前端迁移 Next.js + TS + Tailwind（TeachX 形态：serif 问候/静态导出单端口托管不变）
 - [ ] **下一批** python-pptx 真实文件 · 多校源 · 并行识别与抓取缓存
 
 ## 🎓 也是一个学习项目
